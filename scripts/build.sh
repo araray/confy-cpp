@@ -7,6 +7,10 @@ dir_src="${dir_base}/"
 dir_build="${dir_base}/build"
 
 {
+    if [[ -d "${dir_build}" ]]; then
+        rm -rf "${dir_build}"
+    fi
+
     mkdir -p "${dir_build}"
 
     cd "${dir_build}"

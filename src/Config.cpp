@@ -6,6 +6,11 @@
 #include <stdexcept>
 #include <system_error>
 #include <algorithm>
+#include <memory>
+#include <cstdint>
+#include <limits>
+#include <cctype>
+
 
 namespace confy {
 
@@ -61,6 +66,20 @@ std::string Config::to_json_string(int indent) const {
     return data_.dump(indent);
 }
 
+// Helper: stream a concrete toml++ node type (table/array/value) to an ostream.
+static void stream_toml_node(std::ostream& os, const toml::node& n) {
+    if (auto t = n.as_table()) { os << *t; return; }
+    if (auto a = n.as_array()) { os << *a; return; }
+    if (auto v = n.as_string()) { os << *v; return; }
+    if (auto v = n.as_integer()) { os << *v; return; }
+    if (auto v = n.as_floating_point()) { os << *v; return; }
+    if (auto v = n.as_boolean()) { os << *v; return; }
+    if (auto v = n.as_date()) { os << *v; return; }
+    if (auto v = n.as_time()) { os << *v; return; }
+    if (auto v = n.as_date_time()) { os << *v; return; }
+    // Fallback: nothing matched (shouldn't happen)
+}
+
 static toml::node* json_to_toml_impl(const nlohmann::json& j) {
     using nlohmann::json;
     if (j.is_object()) {
@@ -82,7 +101,15 @@ static toml::node* json_to_toml_impl(const nlohmann::json& j) {
     } else if (j.is_number_integer()) {
         return new toml::value<std::int64_t>(j.get<std::int64_t>());
     } else if (j.is_number_unsigned()) {
-        return new toml::value<std::uint64_t>(j.get<std::uint64_t>());
+        // TOML does not have unsigned integers; map to int64 when possible,
+        // otherwise fall back to double to retain a numeric representation.
+        std::uint64_t u = j.get<std::uint64_t>();
+        constexpr std::uint64_t I64_MAX = static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max());
+        if (u <= I64_MAX) {
+            return new toml::value<std::int64_t>(static_cast<std::int64_t>(u));
+        } else {
+            return new toml::value<double>(static_cast<double>(u));
+        }
     } else if (j.is_number_float()) {
         return new toml::value<double>(j.get<double>());
     } else if (j.is_null()) {
@@ -134,7 +161,7 @@ nlohmann::json Config::toml_to_json(const toml::node& n) {
 std::string Config::to_toml_string() const {
     std::unique_ptr<toml::node> root(json_to_toml(data_));
     std::ostringstream oss;
-    oss << *root;
+    stream_toml_node(oss, *root);
     return oss.str();
 }
 
@@ -172,7 +199,7 @@ void Config::write_file_toml(const std::string& file, const nlohmann::json& j) {
     std::unique_ptr<toml::node> root(json_to_toml(j));
     std::ofstream ofs(file);
     if (!ofs) throw std::runtime_error("Failed to open for write: " + file);
-    ofs << *root;
+    stream_toml_node(ofs, *root);
 }
 
 void Config::apply_env_prefix(const std::string& prefix) {

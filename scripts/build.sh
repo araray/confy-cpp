@@ -2,16 +2,18 @@
 
 p_target_mode="${1:-Release}"
 
-dir_base=.
+dir_base="${2:-$PWD}"
 dir_src="${dir_base}/"
 dir_build="${dir_base}/build"
 
-mkdir -p "${dir_build}"
+{
+    mkdir -p "${dir_build}"
 
-cd "${dir_build}"
+    cd "${dir_build}"
 
-cmake -DCMAKE_BUILD_TYPE=${p_target_mode} "${dir_src}"
+    cmake -DCMAKE_BUILD_TYPE=${p_target_mode} "${dir_src}"
 
-cmake --build ${dir_build} -j
+    cmake --build ${dir_build} -j
 
-ctest --output-on-failure
+    ctest --output-on-failure
+} 2>&1

@@ -76,8 +76,8 @@ private:
 
     // Conversions between json <-> toml::node
     static nlohmann::json toml_to_json(const toml::node& n);
-    static toml::node* json_to_toml(const nlohmann::json& j);
-
+    // Build a TOML table by value from a JSON object.
+    static toml::table json_to_toml(const nlohmann::json& j);
     // Helper to detect file extension
     static std::string ext_of(const std::string& path);
 };

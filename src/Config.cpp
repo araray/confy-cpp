@@ -10,7 +10,7 @@
 #include <cstdint>
 #include <limits>
 #include <cctype>
-
+#include <limits>
 
 namespace confy {
 
@@ -40,6 +40,96 @@ Config Config::load(const LoadOptions& opts) {
     cfg.enforce_mandatory(opts.mandatory);
 
     return cfg;
+}
+
+// ---- JSON -> TOML (value-based construction; no raw nodes) -----------------
+namespace {
+    using nlohmann::json;
+
+    inline void insert_scalar(toml::table& tbl, const std::string& key, const json& v) {
+        if (v.is_string()) {
+            tbl.insert(key, v.get<std::string>());
+        } else if (v.is_boolean()) {
+            tbl.insert(key, v.get<bool>());
+        } else if (v.is_number_integer()) {
+            tbl.insert(key, static_cast<std::int64_t>(v.get<std::int64_t>()));
+        } else if (v.is_number_unsigned()) {
+            const auto u = v.get<std::uint64_t>();
+            if (u <= static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
+                tbl.insert(key, static_cast<std::int64_t>(u));
+            } else {
+                // Oversize for TOML int; fall back to double
+                tbl.insert(key, static_cast<double>(u));
+            }
+        } else if (v.is_number_float()) {
+            tbl.insert(key, v.get<double>());
+        } else if (v.is_null()) {
+            // No TOML null: preserve as empty string (prior behavior)
+            tbl.insert(key, std::string{""});
+        } else {
+            // Fallback for anything else: JSON text
+            tbl.insert(key, v.dump());
+        }
+    }
+
+    toml::array make_array_from_json(const json& a); // fwd
+    toml::table make_table_from_json(const json& o); // fwd
+
+    toml::array make_array_from_json(const json& a) {
+        toml::array out;
+        for (const auto& elem : a) {
+            if (elem.is_object()) {
+                out.push_back(make_table_from_json(elem));
+            } else if (elem.is_array()) {
+                out.push_back(make_array_from_json(elem));
+            } else if (elem.is_string()) {
+                out.push_back(elem.get<std::string>());
+            } else if (elem.is_boolean()) {
+                out.push_back(elem.get<bool>());
+            } else if (elem.is_number_integer()) {
+                out.push_back(static_cast<std::int64_t>(elem.get<std::int64_t>()));
+            } else if (elem.is_number_unsigned()) {
+                const auto u = elem.get<std::uint64_t>();
+                if (u <= static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()))
+                    out.push_back(static_cast<std::int64_t>(u));
+                else
+                    out.push_back(static_cast<double>(u));
+            } else if (elem.is_number_float()) {
+                out.push_back(elem.get<double>());
+            } else if (elem.is_null()) {
+                out.push_back(std::string{""});
+            } else {
+                out.push_back(elem.dump());
+            }
+        }
+        return out;
+    }
+
+    toml::table make_table_from_json(const json& o) {
+        toml::table tbl;
+        for (auto it = o.begin(); it != o.end(); ++it) {
+            const auto& k = it.key();
+            const auto& v = it.value();
+            if (v.is_object()) {
+                tbl.insert(k, make_table_from_json(v));
+            } else if (v.is_array()) {
+                tbl.insert(k, make_array_from_json(v));
+            } else {
+                insert_scalar(tbl, k, v);
+            }
+        }
+        return tbl;
+    }
+} // namespace
+
+toml::table Config::json_to_toml(const nlohmann::json& j) {
+    // TOML requires a table at the root; if j isn't an object, wrap under "value".
+    if (j.is_object()) return make_table_from_json(j);
+    toml::table root;
+    // keep behavior consistent with previous implementation
+    if (j.is_array()) root.insert("value", make_array_from_json(j));
+    else insert_scalar(root, "value", j);
+    return root;
 }
 
 const nlohmann::json& Config::at(const std::string& path) const {
@@ -78,46 +168,6 @@ static void stream_toml_node(std::ostream& os, const toml::node& n) {
     if (auto v = n.as_time()) { os << *v; return; }
     if (auto v = n.as_date_time()) { os << *v; return; }
     // Fallback: nothing matched (shouldn't happen)
-}
-
-static toml::node* json_to_toml_impl(const nlohmann::json& j) {
-    using nlohmann::json;
-    if (j.is_object()) {
-        auto* tbl = new toml::table{};
-        for (auto it = j.begin(); it != j.end(); ++it) {
-            tbl->insert(it.key(), std::unique_ptr<toml::node>(json_to_toml_impl(it.value())));
-        }
-        return tbl;
-    } else if (j.is_array()) {
-        auto* arr = new toml::array{};
-        for (const auto& v : j) {
-            arr->push_back(std::unique_ptr<toml::node>(json_to_toml_impl(v)));
-        }
-        return arr;
-    } else if (j.is_string()) {
-        return new toml::value<std::string>(j.get<std::string>());
-    } else if (j.is_boolean()) {
-        return new toml::value<bool>(j.get<bool>());
-    } else if (j.is_number_integer()) {
-        return new toml::value<std::int64_t>(j.get<std::int64_t>());
-    } else if (j.is_number_unsigned()) {
-        // TOML does not have unsigned integers; map to int64 when possible,
-        // otherwise fall back to double to retain a numeric representation.
-        std::uint64_t u = j.get<std::uint64_t>();
-        constexpr std::uint64_t I64_MAX = static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max());
-        if (u <= I64_MAX) {
-            return new toml::value<std::int64_t>(static_cast<std::int64_t>(u));
-        } else {
-            return new toml::value<double>(static_cast<double>(u));
-        }
-    } else if (j.is_number_float()) {
-        return new toml::value<double>(j.get<double>());
-    } else if (j.is_null()) {
-        // Represent null as empty string (TOML has no null). Alternative: omit key.
-        return new toml::value<std::string>("");
-    }
-    // Fallback to string
-    return new toml::value<std::string>(j.dump());
 }
 
 toml::node* Config::json_to_toml(const nlohmann::json& j) {
@@ -159,9 +209,9 @@ nlohmann::json Config::toml_to_json(const toml::node& n) {
 }
 
 std::string Config::to_toml_string() const {
-    std::unique_ptr<toml::node> root(json_to_toml(data_));
+    auto root = json_to_toml(data_);
     std::ostringstream oss;
-    stream_toml_node(oss, *root);
+    oss << root;
     return oss.str();
 }
 
@@ -196,10 +246,10 @@ void Config::write_file_json(const std::string& file, const nlohmann::json& j) {
 }
 
 void Config::write_file_toml(const std::string& file, const nlohmann::json& j) {
-    std::unique_ptr<toml::node> root(json_to_toml(j));
+    auto root = json_to_toml(j);
     std::ofstream ofs(file);
     if (!ofs) throw std::runtime_error("Failed to open for write: " + file);
-    stream_toml_node(ofs, *root);
+    ofs << root;
 }
 
 void Config::apply_env_prefix(const std::string& prefix) {

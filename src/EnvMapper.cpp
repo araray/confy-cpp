@@ -570,6 +570,10 @@ Value load_env_vars(
     const Value& file_data,
     bool load_dotenv
 ) {
+    // Suppress unused parameter warning - base_structure could be used for optimization
+    // but we delegate to remap_and_flatten_env_data which recomputes the merge
+    (void)base_structure;
+
     // Step 1: Collect environment variables
     auto env_vars = collect_env_vars(prefix);
 

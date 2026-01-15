@@ -205,15 +205,14 @@ Value load_json_file(const std::string& path) {
     } catch (const FileNotFoundError&) {
         throw;
     } catch (const std::exception& e) {
-        throw ConfigParseError(path, 0, 0, std::string("Failed to read file: ") + e.what());
+        throw ConfigParseError(path, std::string("Failed to read file: ") + e.what());
     }
 
     // Parse JSON
     try {
         return nlohmann::json::parse(content);
     } catch (const nlohmann::json::parse_error& e) {
-        // Extract line/column from error message if possible
-        throw ConfigParseError(path, 0, 0, e.what());
+        throw ConfigParseError(path, e.what());
     }
 }
 
@@ -232,12 +231,11 @@ Value load_toml_file(const std::string& path, const Value& defaults) {
     try {
         table = toml::parse_file(path);
     } catch (const toml::parse_error& e) {
-        throw ConfigParseError(
-            path,
-            static_cast<int>(e.source().begin.line),
-            static_cast<int>(e.source().begin.column),
-            std::string(e.description())
-        );
+        std::ostringstream msg;
+        msg << "line " << e.source().begin.line
+            << ", column " << e.source().begin.column
+            << ": " << e.description();
+        throw ConfigParseError(path, msg.str());
     }
 
     // Convert to JSON

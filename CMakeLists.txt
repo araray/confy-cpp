@@ -157,25 +157,27 @@ set_target_properties(confy-cpp PROPERTIES
 )
 
 # ============================================================================
-# Tests: using Catch2
+# Tests: using GoogleTest
 # ============================================================================
 
 include(CTest)
 if(BUILD_TESTING)
-    # Try system Catch2 first
-    find_package(Catch2 3 QUIET)
-    if(NOT Catch2_FOUND)
-        message(STATUS "Catch2 not found, fetching from source...")
+    # Try system GTest first
+    find_package(GTest QUIET)
+    if(NOT GTest_FOUND)
+        message(STATUS "GoogleTest not found, fetching from source...")
         include(FetchContent)
         FetchContent_Declare(
-            Catch2
-            GIT_REPOSITORY https://github.com/catchorg/Catch2.git
-            GIT_TAG        v3.6.0
+            googletest
+            GIT_REPOSITORY https://github.com/google/googletest.git
+            GIT_TAG        v1.14.0
             GIT_SHALLOW    TRUE
         )
-        FetchContent_MakeAvailable(Catch2)
+        # Prevent overriding the parent project's compiler/linker settings on Windows
+        set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+        FetchContent_MakeAvailable(googletest)
     else()
-        message(STATUS "Found Catch2: ${Catch2_VERSION}")
+        message(STATUS "Found GoogleTest: ${GTest_VERSION}")
     endif()
 
     # Test executable
@@ -189,7 +191,7 @@ if(BUILD_TESTING)
 
     target_link_libraries(confy_tests PRIVATE
         confy
-        Catch2::Catch2WithMain
+        GTest::gtest_main
     )
 
     # Suppress warnings for generated code
@@ -197,61 +199,62 @@ if(BUILD_TESTING)
         $<$<CXX_COMPILER_ID:GNU>:-Wno-maybe-uninitialized>
     )
 
-    # Register test with CTest
-    include(Catch)
-    catch_discover_tests(confy_tests)
+    # Register tests with CTest
+    include(GoogleTest)
+    gtest_discover_tests(confy_tests)
 endif()
 
 # ============================================================================
-# Installation
+# Installation (disabled by default when using FetchContent dependencies)
 # ============================================================================
 
-include(GNUInstallDirs)
+option(CONFY_INSTALL "Enable installation targets" OFF)
 
-install(TARGETS confy
-    EXPORT confy-targets
-    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-)
+if(CONFY_INSTALL)
+    include(GNUInstallDirs)
 
-install(DIRECTORY include/confy
-    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-)
+    install(TARGETS confy
+        EXPORT confy-targets
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    )
 
-install(TARGETS confy-cpp
-    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-)
+    install(DIRECTORY include/confy
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+    )
 
-# ============================================================================
-# Package Configuration
-# ============================================================================
+    install(TARGETS confy-cpp
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    )
 
-install(EXPORT confy-targets
-    FILE confy-targets.cmake
-    NAMESPACE confy::
-    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/confy
-)
+    # Package Configuration
+    install(EXPORT confy-targets
+        FILE confy-targets.cmake
+        NAMESPACE confy::
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/confy
+    )
 
-include(CMakePackageConfigHelpers)
+    include(CMakePackageConfigHelpers)
 
-configure_package_config_file(
-    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/confy-config.cmake.in
-    ${CMAKE_CURRENT_BINARY_DIR}/confy-config.cmake
-    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/confy
-)
+    configure_package_config_file(
+        ${CMAKE_CURRENT_SOURCE_DIR}/cmake/confy-config.cmake.in
+        ${CMAKE_CURRENT_BINARY_DIR}/confy-config.cmake
+        INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/confy
+    )
 
-write_basic_package_version_file(
-    ${CMAKE_CURRENT_BINARY_DIR}/confy-config-version.cmake
-    VERSION ${PROJECT_VERSION}
-    COMPATIBILITY SameMajorVersion
-)
+    write_basic_package_version_file(
+        ${CMAKE_CURRENT_BINARY_DIR}/confy-config-version.cmake
+        VERSION ${PROJECT_VERSION}
+        COMPATIBILITY SameMajorVersion
+    )
 
-install(FILES
-    ${CMAKE_CURRENT_BINARY_DIR}/confy-config.cmake
-    ${CMAKE_CURRENT_BINARY_DIR}/confy-config-version.cmake
-    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/confy
-)
+    install(FILES
+        ${CMAKE_CURRENT_BINARY_DIR}/confy-config.cmake
+        ${CMAKE_CURRENT_BINARY_DIR}/confy-config-version.cmake
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/confy
+    )
+endif()
 
 # ============================================================================
 # Status Summary

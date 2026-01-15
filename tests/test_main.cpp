@@ -1,11 +1,11 @@
 /**
  * @file test_main.cpp
- * @brief Catch2 test runner main
- *
- * This file provides the main() function for the test executable.
- * Individual test files should include <catch2/catch_test_macros.hpp>
- * and define TEST_CASE blocks.
+ * @brief GoogleTest main entry point for confy tests
  */
 
-#define CATCH_CONFIG_MAIN
-#include <catch2/catch_all.hpp>
+#include <gtest/gtest.h>
+
+int main(int argc, char** argv) {
+    ::testing::InitGoogleTest(&argc, argv);
+    return RUN_ALL_TESTS();
+}

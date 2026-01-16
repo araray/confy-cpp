@@ -262,7 +262,7 @@ std::string transform_env_name(const std::string& name) {
     std::string result = to_lower(name);
 
     // 2. Replace __ with temporary marker
-    const std::string TEMP_MARKER = "\x00USCORE\x00";  // Using null bytes as marker
+    const std::string TEMP_MARKER = "\x1F_USCORE_\x1F";  // Using null bytes as marker
     result = replace_all(result, "__", TEMP_MARKER);
 
     // 3. Replace _ with .

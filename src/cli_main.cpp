@@ -565,6 +565,19 @@ int main(int argc, char** argv) {
                 cxxopts::value<std::string>()->default_value(""))
             ("no-dotenv", "Disable .env file loading",
                 cxxopts::value<bool>()->default_value("false"))
+            // === Subcommand options (search) ===
+            ("key", "Pattern to match against keys (for search)",
+                cxxopts::value<std::string>()->default_value(""))
+            ("val", "Pattern to match against values (for search)",
+                cxxopts::value<std::string>()->default_value(""))
+            ("i,ignore-case", "Case-insensitive matching",
+                cxxopts::value<bool>()->default_value("false"))
+            // === Subcommand options (convert) ===
+            ("to", "Target format: json or toml (for convert)",
+                cxxopts::value<std::string>()->default_value(""))
+            ("out", "Output file path (for convert)",
+                cxxopts::value<std::string>()->default_value(""))
+            // === General ===
             ("h,help", "Show help message")
             ("command", "Command to execute",
                 cxxopts::value<std::string>()->default_value(""))
@@ -574,9 +587,6 @@ int main(int argc, char** argv) {
         // Positional arguments: command and args
         options.parse_positional({"command", "args"});
         options.positional_help("COMMAND [ARGS...]");
-
-        // Allow unrecognized options for subcommand parsing
-        options.allow_unrecognised_options();
 
         // =====================================================================
         // Parse global options
@@ -621,12 +631,6 @@ int main(int argc, char** argv) {
         std::vector<std::string> args;
         if (result.count("args")) {
             args = result["args"].as<std::vector<std::string>>();
-        }
-
-        // Also include unrecognized options in args (for subcommand parsing)
-        auto unmatched = result.unmatched();
-        for (const auto& u : unmatched) {
-            args.push_back(u);
         }
 
         // =====================================================================
@@ -697,19 +701,10 @@ int main(int argc, char** argv) {
             return cmd_exists(cfg, args[0]);
         }
         else if (cmd == "search") {
-            // Parse search-specific options
-            std::string key_pattern, val_pattern;
-            bool ignore_case = false;
-
-            for (size_t i = 0; i < args.size(); ++i) {
-                if (args[i] == "--key" && i + 1 < args.size()) {
-                    key_pattern = args[++i];
-                } else if (args[i] == "--val" && i + 1 < args.size()) {
-                    val_pattern = args[++i];
-                } else if (args[i] == "-i" || args[i] == "--ignore-case") {
-                    ignore_case = true;
-                }
-            }
+            // Get search options from parsed cxxopts result
+            std::string key_pattern = result["key"].as<std::string>();
+            std::string val_pattern = result["val"].as<std::string>();
+            bool ignore_case = result["ignore-case"].as<bool>();
 
             return cmd_search(cfg, key_pattern, val_pattern, ignore_case);
         }
@@ -717,16 +712,9 @@ int main(int argc, char** argv) {
             return cmd_dump(cfg);
         }
         else if (cmd == "convert") {
-            // Parse convert-specific options
-            std::string format, output_file;
-
-            for (size_t i = 0; i < args.size(); ++i) {
-                if (args[i] == "--to" && i + 1 < args.size()) {
-                    format = args[++i];
-                } else if (args[i] == "--out" && i + 1 < args.size()) {
-                    output_file = args[++i];
-                }
-            }
+            // Get convert options from parsed cxxopts result
+            std::string format = result["to"].as<std::string>();
+            std::string output_file = result["out"].as<std::string>();
 
             if (format.empty()) {
                 std::cerr << color::red("Error: 'convert' requires --to FORMAT") << std::endl;

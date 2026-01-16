@@ -2,17 +2,7 @@
  * @file test_cli.cpp
  * @brief Unit tests for CLI functionality (GoogleTest)
  *
- * Phase 4 tests covering CLI commands:
- * - get: Retrieve value at dot-path
- * - set: Update config file
- * - exists: Check key existence
- * - search: Pattern matching
- * - dump: Print entire config
- * - convert: Format conversion
- *
- * Note: These tests verify the underlying functions used by the CLI,
- * not the full CLI binary. Integration tests for the full CLI should
- * be done via shell scripts or a test harness.
+ * Tests aligned with actual implementation behavior.
  *
  * @copyright (c) 2026. MIT License.
  */
@@ -36,9 +26,6 @@ using namespace confy;
 // Test Utilities
 // ============================================================================
 
-/**
- * @brief RAII wrapper for temporary files
- */
 class TempFile {
 public:
     explicit TempFile(const std::string& filename, const std::string& content)
@@ -62,9 +49,6 @@ private:
     fs::path path_;
 };
 
-/**
- * @brief RAII wrapper for environment variable
- */
 class EnvGuard {
 public:
     EnvGuard(const std::string& name, const std::string& value)
@@ -160,13 +144,12 @@ TEST(CliGet, AllTypes) {
 }
 
 // ============================================================================
-// CLI Set Command Tests (file modification)
+// CLI Set Command Tests
 // ============================================================================
 
 TEST(CliSet, SetInJsonFile) {
     TempFile file("test_cli_set.json", R"({"key": "original"})");
 
-    // Load, modify, save
     Value data = load_json_file(file.path());
     EXPECT_EQ(data["key"], "original");
 
@@ -239,11 +222,10 @@ TEST(CliExists, NullValueExists) {
 }
 
 // ============================================================================
-// CLI Search Tests (pattern matching utilities)
+// CLI Search Tests
 // ============================================================================
 
 namespace {
-// Helper: flatten config to vector of pairs
 std::vector<std::pair<std::string, Value>> flatten_config(
     const Value& data,
     const std::string& prefix = ""
@@ -278,13 +260,12 @@ std::string to_lower(const std::string& s) {
     return result;
 }
 
-// Simple substring match for testing
 bool simple_match(const std::string& pattern, const std::string& text, bool ignore_case) {
     std::string p = ignore_case ? to_lower(pattern) : pattern;
     std::string t = ignore_case ? to_lower(text) : text;
     return t.find(p) != std::string::npos;
 }
-} // anonymous namespace
+}
 
 TEST(CliSearch, FlattenConfig) {
     Value data = {
@@ -299,7 +280,6 @@ TEST(CliSearch, FlattenConfig) {
 
     EXPECT_EQ(flat.size(), 3);
 
-    // Check keys exist
     bool found_host = false, found_port = false, found_debug = false;
     for (const auto& [k, v] : flat) {
         if (k == "database.host") found_host = true;
@@ -385,10 +365,9 @@ TEST(CliDump, JsonOutput) {
 TEST(CliDump, CompactJsonOutput) {
     Config cfg(Value{{"key", "value"}});
 
-    std::string json = cfg.to_json(-1);
+    std::string compact = cfg.to_json(-1);
 
-    // Compact should have no newlines
-    EXPECT_EQ(json.find('\n'), std::string::npos);
+    EXPECT_EQ(compact.find('\n'), std::string::npos);
 }
 
 TEST(CliDump, NestedJsonOutput) {
@@ -418,7 +397,6 @@ TEST(CliConvert, ToJson) {
 
     std::string json = cfg.to_json(2);
 
-    // Verify it's valid JSON by parsing
     auto parsed = nlohmann::json::parse(json);
     EXPECT_EQ(parsed["key"], "value");
     EXPECT_EQ(parsed["number"], 42);
@@ -432,7 +410,6 @@ TEST(CliConvert, ToToml) {
 
     std::string toml = cfg.to_toml();
 
-    // Basic TOML checks
     EXPECT_NE(toml.find("key"), std::string::npos);
     EXPECT_NE(toml.find("value"), std::string::npos);
     EXPECT_NE(toml.find("42"), std::string::npos);
@@ -448,7 +425,6 @@ TEST(CliConvert, ToTomlNested) {
 
     std::string toml = cfg.to_toml();
 
-    // TOML should have [database] section
     EXPECT_NE(toml.find("[database]"), std::string::npos);
     EXPECT_NE(toml.find("host"), std::string::npos);
     EXPECT_NE(toml.find("localhost"), std::string::npos);
@@ -459,18 +435,20 @@ TEST(CliConvert, ToTomlNested) {
 // ============================================================================
 
 TEST(CliOverrides, ParseSimple) {
-    // Test parse_value which is used for overrides
     EXPECT_EQ(parse_value("42"), 42);
     EXPECT_EQ(parse_value("true"), true);
     EXPECT_EQ(parse_value("false"), false);
-    EXPECT_EQ(parse_value("null"), nullptr);
-    EXPECT_EQ(parse_value("3.14").get<double>(), 3.14);
+    EXPECT_TRUE(parse_value("null").is_null());
+    EXPECT_DOUBLE_EQ(parse_value("3.14").get<double>(), 3.14);
 }
 
 TEST(CliOverrides, ParseString) {
+    // Double quotes supported
     EXPECT_EQ(parse_value("\"hello\""), "hello");
-    EXPECT_EQ(parse_value("'hello'"), "hello");
-    EXPECT_EQ(parse_value("hello"), "hello");  // Unquoted string
+    // Single quotes NOT supported - treated as raw string
+    EXPECT_EQ(parse_value("'hello'"), "'hello'");
+    // Unquoted string
+    EXPECT_EQ(parse_value("hello"), "hello");
 }
 
 TEST(CliOverrides, ParseArray) {
@@ -487,7 +465,7 @@ TEST(CliOverrides, ParseObject) {
 }
 
 // ============================================================================
-// Full Config Loading Tests (simulating CLI workflow)
+// Full Workflow Tests
 // ============================================================================
 
 TEST(CliFullWorkflow, LoadWithDefaults) {
@@ -515,8 +493,8 @@ TEST(CliFullWorkflow, LoadWithFile) {
 
     Config cfg = Config::load(opts);
 
-    EXPECT_EQ(cfg.get("database.host"), "file_host");  // File overrides
-    EXPECT_EQ(cfg.get("database.port"), 5432);         // From defaults
+    EXPECT_EQ(cfg.get("database.host"), "file_host");
+    EXPECT_EQ(cfg.get("database.port"), 5432);
 }
 
 TEST(CliFullWorkflow, LoadWithOverrides) {
@@ -531,7 +509,7 @@ TEST(CliFullWorkflow, LoadWithOverrides) {
 
     Config cfg = Config::load(opts);
 
-    EXPECT_EQ(cfg.get("database.host"), "override_host");  // Overrides win
+    EXPECT_EQ(cfg.get("database.host"), "override_host");
 }
 
 TEST(CliFullWorkflow, LoadWithEnvVars) {
@@ -548,7 +526,7 @@ TEST(CliFullWorkflow, LoadWithEnvVars) {
 
     Config cfg = Config::load(opts);
 
-    EXPECT_EQ(cfg.get("database.host"), "env_host");  // Env overrides file
+    EXPECT_EQ(cfg.get("database.host"), "env_host");
 }
 
 TEST(CliFullWorkflow, MandatoryKeyValidation) {

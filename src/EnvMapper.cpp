@@ -258,18 +258,45 @@ bool is_system_variable(const std::string& var_name) {
 
 std::string transform_env_name(const std::string& name) {
     // RULE E4: Underscore transformation
+    // Algorithm:
+    // 1. Convert to lowercase
+    // 2. Replace __ (double underscore) with temporary marker
+    // 3. Replace _ (single underscore) with . (dot)
+    // 4. Replace marker back to _ (single underscore)
+
     // 1. Convert to lowercase
     std::string result = to_lower(name);
 
     // 2. Replace __ with temporary marker
-    const std::string TEMP_MARKER = "\x1F_USCORE_\x1F";  // Using null bytes as marker
-    result = replace_all(result, "__", TEMP_MARKER);
+    // CRITICAL: The marker MUST:
+    //   - NOT contain null bytes (\x00) - breaks std::string construction
+    //   - NOT contain underscores - would be affected by step 3
+    //   - NOT contain dots - could cause issues
+    //   - Use a string that's unlikely to appear in real variable names
+    //
+    // Use a simple unique string - no special characters needed!
+    const std::string MARKER = "XDOUBLEUNDERSCOREX";
+
+    // Replace all __ with marker
+    size_t pos = 0;
+    while ((pos = result.find("__", pos)) != std::string::npos) {
+        result.replace(pos, 2, MARKER);
+        pos += MARKER.length();
+    }
 
     // 3. Replace _ with .
-    result = replace_all(result, "_", ".");
+    pos = 0;
+    while ((pos = result.find("_", pos)) != std::string::npos) {
+        result.replace(pos, 1, ".");
+        pos += 1;
+    }
 
     // 4. Replace marker back to _
-    result = replace_all(result, TEMP_MARKER, "_");
+    pos = 0;
+    while ((pos = result.find(MARKER, pos)) != std::string::npos) {
+        result.replace(pos, MARKER.length(), "_");
+        pos += 1;
+    }
 
     return result;
 }

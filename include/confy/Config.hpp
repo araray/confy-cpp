@@ -438,10 +438,7 @@ T Config::get(const std::string& path, const T& default_val) const {
     try {
         return opt->get<T>();
     } catch (const nlohmann::json::type_error& e) {
-        throw TypeError(
-            "Cannot convert value at '" + path + "' to requested type: " +
-            std::string(e.what())
-        );
+        throw TypeError(path, "compatible type", e.what());
     }
 }
 

@@ -20,7 +20,6 @@
  */
 
 #include <gtest/gtest.h>
-#include <gmock/gmock.h>
 
 #include "confy/Config.hpp"
 #include "confy/Errors.hpp"
@@ -33,8 +32,6 @@
 
 namespace fs = std::filesystem;
 using namespace confy;
-using ::testing::HasSubstr;
-using ::testing::UnorderedElementsAre;
 
 // =============================================================================
 // Test Utilities
@@ -175,12 +172,12 @@ TEST(ConfigConstruction, MoveConstructor) {
 // =============================================================================
 
 TEST(ConfigGet, SimpleKey) {
-    Config cfg({{"key", "value"}});
+    Config cfg(Value{{"key", "value"}});
     EXPECT_EQ(cfg.get("key"), "value");
 }
 
 TEST(ConfigGet, NestedKey) {
-    Config cfg({
+    Config cfg(Value{
         {"database", {
             {"host", "localhost"},
             {"port", 5432}
@@ -192,7 +189,7 @@ TEST(ConfigGet, NestedKey) {
 }
 
 TEST(ConfigGet, DeeplyNestedKey) {
-    Config cfg({
+    Config cfg(Value{
         {"level1", {
             {"level2", {
                 {"level3", {
@@ -206,14 +203,14 @@ TEST(ConfigGet, DeeplyNestedKey) {
 }
 
 TEST(ConfigGet, MissingKeyThrows) {
-    Config cfg({{"existing", "value"}});
+    Config cfg(Value{{"existing", "value"}});
 
     EXPECT_THROW(cfg.get("nonexistent"), KeyError);
     EXPECT_THROW(cfg.get("existing.child"), TypeError);  // Can't traverse into string
 }
 
 TEST(ConfigGet, GetWithDefault) {
-    Config cfg({{"existing", 42}});
+    Config cfg(Value{{"existing", 42}});
 
     EXPECT_EQ(cfg.get<int>("existing", 0), 42);
     EXPECT_EQ(cfg.get<int>("missing", 99), 99);
@@ -221,14 +218,14 @@ TEST(ConfigGet, GetWithDefault) {
 }
 
 TEST(ConfigGet, GetWithDefaultStillThrowsOnTypeError) {
-    Config cfg({{"key", 42}});  // integer, not object
+    Config cfg(Value{{"key", 42}});  // integer, not object
 
     // RULE D2: TypeError propagates even with default
     EXPECT_THROW(cfg.get<int>("key.child", 0), TypeError);
 }
 
 TEST(ConfigGet, GetOptional) {
-    Config cfg({{"existing", "value"}});
+    Config cfg(Value{{"existing", "value"}});
 
     auto existing = cfg.get_optional("existing");
     EXPECT_TRUE(existing.has_value());
@@ -239,14 +236,14 @@ TEST(ConfigGet, GetOptional) {
 }
 
 TEST(ConfigGet, GetOptionalThrowsOnTypeError) {
-    Config cfg({{"key", 42}});
+    Config cfg(Value{{"key", 42}});
 
     // TypeError still propagates
     EXPECT_THROW(cfg.get_optional("key.child"), TypeError);
 }
 
 TEST(ConfigGet, GetTypedConversion) {
-    Config cfg({
+    Config cfg(Value{
         {"string", "hello"},
         {"integer", 42},
         {"floating", 3.14},
@@ -296,14 +293,14 @@ TEST(ConfigSet, CreateMissingFalseThrows) {
 }
 
 TEST(ConfigSet, OverwriteExisting) {
-    Config cfg({{"key", "old"}});
+    Config cfg(Value{{"key", "old"}});
     cfg.set("key", "new");
 
     EXPECT_EQ(cfg.get("key"), "new");
 }
 
 TEST(ConfigSet, OverwriteNestedExisting) {
-    Config cfg({
+    Config cfg(Value{
         {"database", {{"host", "old"}}}
     });
 
@@ -337,17 +334,17 @@ TEST(ConfigSet, SetVariousTypes) {
 // =============================================================================
 
 TEST(ConfigContains, ExistingKey) {
-    Config cfg({{"key", "value"}});
+    Config cfg(Value{{"key", "value"}});
     EXPECT_TRUE(cfg.contains("key"));
 }
 
 TEST(ConfigContains, MissingKey) {
-    Config cfg({{"existing", "value"}});
+    Config cfg(Value{{"existing", "value"}});
     EXPECT_FALSE(cfg.contains("missing"));
 }
 
 TEST(ConfigContains, NestedExisting) {
-    Config cfg({
+    Config cfg(Value{
         {"database", {{"host", "localhost"}}}
     });
 
@@ -357,7 +354,7 @@ TEST(ConfigContains, NestedExisting) {
 }
 
 TEST(ConfigContains, TypeErrorOnNonContainer) {
-    Config cfg({{"key", 42}});  // integer, not object
+    Config cfg(Value{{"key", 42}});  // integer, not object
 
     // RULE D6: TypeError for traversing into non-container
     EXPECT_THROW(cfg.contains("key.child"), TypeError);
@@ -388,7 +385,8 @@ TEST(ConfigMandatory, SingleMissingKey) {
         try {
             Config::load(opts);
         } catch (const MissingMandatoryConfig& e) {
-            EXPECT_THAT(e.missing_keys(), UnorderedElementsAre("missing"));
+            ASSERT_EQ(e.missing_keys().size(), 1);
+            EXPECT_EQ(e.missing_keys()[0], "missing");
             throw;
         }
     }, MissingMandatoryConfig);
@@ -698,7 +696,7 @@ TEST(ConfigOverrides, StringValueParsing) {
 // =============================================================================
 
 TEST(ConfigSerialization, ToJson) {
-    Config cfg({
+    Config cfg(Value{
         {"string", "hello"},
         {"number", 42},
         {"nested", {{"key", "value"}}}
@@ -706,13 +704,13 @@ TEST(ConfigSerialization, ToJson) {
 
     std::string json = cfg.to_json();
 
-    EXPECT_THAT(json, HasSubstr("\"string\""));
-    EXPECT_THAT(json, HasSubstr("\"hello\""));
-    EXPECT_THAT(json, HasSubstr("42"));
+    EXPECT_NE(json.find("\"string\""), std::string::npos);
+    EXPECT_NE(json.find("\"hello\""), std::string::npos);
+    EXPECT_NE(json.find("42"), std::string::npos);
 }
 
 TEST(ConfigSerialization, ToJsonCompact) {
-    Config cfg({{"key", "value"}});
+    Config cfg(Value{{"key", "value"}});
 
     std::string compact = cfg.to_json(-1);
 
@@ -721,7 +719,7 @@ TEST(ConfigSerialization, ToJsonCompact) {
 }
 
 TEST(ConfigSerialization, ToToml) {
-    Config cfg({
+    Config cfg(Value{
         {"string", "hello"},
         {"number", 42},
         {"nested", {{"key", "value"}}}
@@ -729,9 +727,9 @@ TEST(ConfigSerialization, ToToml) {
 
     std::string toml = cfg.to_toml();
 
-    EXPECT_THAT(toml, HasSubstr("string"));
-    EXPECT_THAT(toml, HasSubstr("hello"));
-    EXPECT_THAT(toml, HasSubstr("42"));
+    EXPECT_NE(toml.find("string"), std::string::npos);
+    EXPECT_NE(toml.find("hello"), std::string::npos);
+    EXPECT_NE(toml.find("42"), std::string::npos);
 }
 
 // =============================================================================
@@ -750,7 +748,7 @@ TEST(ConfigMerge, MergeConfig) {
 }
 
 TEST(ConfigMerge, MergeValue) {
-    Config cfg({{"a", 1}});
+    Config cfg(Value{{"a", 1}});
     Value val = {{"b", 2}};
 
     cfg.merge(val);
@@ -767,7 +765,7 @@ TEST(ConfigMerge, MergeNonObjectThrows) {
 }
 
 TEST(ConfigMerge, DeepMerge) {
-    Config cfg({
+    Config cfg(Value{
         {"database", {
             {"host", "localhost"},
             {"port", 5432}
@@ -929,7 +927,7 @@ TEST(ConfigEdgeCases, ArrayValues) {
 }
 
 TEST(ConfigEdgeCases, NullValues) {
-    Config cfg({{"key", nullptr}});
+    Config cfg(Value{{"key", nullptr}});
 
     EXPECT_TRUE(cfg.contains("key"));
     EXPECT_TRUE(cfg.get("key").is_null());
@@ -946,7 +944,7 @@ TEST(ConfigErrors, KeyErrorContainsPath) {
         cfg.get("nonexistent.path");
         FAIL() << "Expected KeyError";
     } catch (const KeyError& e) {
-        EXPECT_THAT(e.what(), HasSubstr("nonexistent.path"));
+        EXPECT_NE(std::string(e.what()).find("nonexistent.path"), std::string::npos);
     }
 }
 
@@ -959,17 +957,10 @@ TEST(ConfigErrors, MissingMandatoryListsAllKeys) {
         FAIL() << "Expected MissingMandatoryConfig";
     } catch (const MissingMandatoryConfig& e) {
         std::string msg = e.what();
-        EXPECT_THAT(msg, HasSubstr("key1"));
-        EXPECT_THAT(msg, HasSubstr("key2"));
-        EXPECT_THAT(msg, HasSubstr("key3"));
+        EXPECT_NE(msg.find("key1"), std::string::npos);
+        EXPECT_NE(msg.find("key2"), std::string::npos);
+        EXPECT_NE(msg.find("key3"), std::string::npos);
     }
 }
 
-// =============================================================================
-// Main
-// =============================================================================
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}
+// Main is provided by test_main.cpp

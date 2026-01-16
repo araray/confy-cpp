@@ -36,7 +36,7 @@ namespace confy {
 
 Config::Config(const Value& data) : data_(data) {
     if (!data_.is_object()) {
-        throw TypeError("Config data must be an object type");
+        throw TypeError("", "object", type_name(data_));
     }
 }
 
@@ -253,7 +253,7 @@ void Config::merge(const Config& other) {
 
 void Config::merge(const Value& other) {
     if (!other.is_object()) {
-        throw TypeError("Cannot merge non-object value into Config");
+        throw TypeError("", "object", type_name(other));
     }
     data_ = deep_merge(data_, other);
 }

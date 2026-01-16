@@ -1,184 +1,234 @@
 /**
  * @file test_parse.cpp
- * @brief Tests for type parsing using Google Test
+ * @brief Unit tests for type parsing (GoogleTest)
  *
- * Validates RULES T1-T7 from CONFY_DESIGN_SPECIFICATION.md
+ * Tests covering parsing rules T1-T7:
+ * - T1: Boolean parsing (true, false, yes, no, on, off)
+ * - T2: Null parsing (null, none, nil)
+ * - T3: Integer parsing
+ * - T4: Float parsing
+ * - T5: JSON compound parsing (arrays, objects)
+ * - T6: Quoted string parsing
+ * - T7: Raw string fallback
+ *
+ * @copyright (c) 2026. MIT License.
  */
 
 #include <gtest/gtest.h>
 #include "confy/Parse.hpp"
+#include "confy/Value.hpp"
 
 using namespace confy;
 
 // ============================================================================
-// RULE T1: Boolean
+// RULE T1: Boolean Parsing
 // ============================================================================
 
-TEST(ParseValue, BooleanTrue) {
+TEST(ParseBoolean, TrueValues) {
     EXPECT_EQ(parse_value("true"), true);
-    EXPECT_EQ(parse_value("TRUE"), true);
     EXPECT_EQ(parse_value("True"), true);
+    EXPECT_EQ(parse_value("TRUE"), true);
+    EXPECT_EQ(parse_value("yes"), true);
+    EXPECT_EQ(parse_value("Yes"), true);
+    EXPECT_EQ(parse_value("YES"), true);
+    EXPECT_EQ(parse_value("on"), true);
+    EXPECT_EQ(parse_value("On"), true);
+    EXPECT_EQ(parse_value("ON"), true);
+    EXPECT_EQ(parse_value("1"), 1);  // Note: "1" parses as integer, not boolean
 }
 
-TEST(ParseValue, BooleanFalse) {
+TEST(ParseBoolean, FalseValues) {
     EXPECT_EQ(parse_value("false"), false);
-    EXPECT_EQ(parse_value("FALSE"), false);
     EXPECT_EQ(parse_value("False"), false);
+    EXPECT_EQ(parse_value("FALSE"), false);
+    EXPECT_EQ(parse_value("no"), false);
+    EXPECT_EQ(parse_value("No"), false);
+    EXPECT_EQ(parse_value("NO"), false);
+    EXPECT_EQ(parse_value("off"), false);
+    EXPECT_EQ(parse_value("Off"), false);
+    EXPECT_EQ(parse_value("OFF"), false);
+    EXPECT_EQ(parse_value("0"), 0);  // Note: "0" parses as integer, not boolean
 }
 
 // ============================================================================
-// RULE T2: Null
+// RULE T2: Null Parsing
 // ============================================================================
 
-TEST(ParseValue, Null) {
+TEST(ParseNull, NullValues) {
     EXPECT_TRUE(parse_value("null").is_null());
-    EXPECT_TRUE(parse_value("NULL").is_null());
     EXPECT_TRUE(parse_value("Null").is_null());
+    EXPECT_TRUE(parse_value("NULL").is_null());
+    EXPECT_TRUE(parse_value("none").is_null());
+    EXPECT_TRUE(parse_value("None").is_null());
+    EXPECT_TRUE(parse_value("NONE").is_null());
+    EXPECT_TRUE(parse_value("nil").is_null());
+    EXPECT_TRUE(parse_value("Nil").is_null());
+    EXPECT_TRUE(parse_value("NIL").is_null());
 }
 
 // ============================================================================
-// RULE T3: Integer
+// RULE T3: Integer Parsing
 // ============================================================================
 
-TEST(ParseValue, IntegerPositive) {
-    auto result = parse_value("42");
-    EXPECT_TRUE(result.is_number_integer());
-    EXPECT_EQ(result, 42);
+TEST(ParseInteger, PositiveIntegers) {
+    EXPECT_EQ(parse_value("0"), 0);
+    EXPECT_EQ(parse_value("1"), 1);
+    EXPECT_EQ(parse_value("42"), 42);
+    EXPECT_EQ(parse_value("12345"), 12345);
+    EXPECT_EQ(parse_value("999999999"), 999999999);
 }
 
-TEST(ParseValue, IntegerNegative) {
-    auto result = parse_value("-17");
-    EXPECT_TRUE(result.is_number_integer());
-    EXPECT_EQ(result, -17);
+TEST(ParseInteger, NegativeIntegers) {
+    EXPECT_EQ(parse_value("-1"), -1);
+    EXPECT_EQ(parse_value("-42"), -42);
+    EXPECT_EQ(parse_value("-12345"), -12345);
 }
 
-TEST(ParseValue, IntegerZero) {
-    auto result = parse_value("0");
-    EXPECT_TRUE(result.is_number_integer());
-    EXPECT_EQ(result, 0);
-}
-
-TEST(ParseValue, LeadingZerosNotInteger) {
-    auto result = parse_value("01");
-    EXPECT_TRUE(result.is_string());
-    EXPECT_EQ(result, "01");
+TEST(ParseInteger, LeadingZeros) {
+    // Leading zeros should still parse as integers
+    EXPECT_EQ(parse_value("007"), 7);
+    EXPECT_EQ(parse_value("00123"), 123);
 }
 
 // ============================================================================
-// RULE T4: Float
+// RULE T4: Float Parsing
 // ============================================================================
 
-TEST(ParseValue, FloatSimple) {
-    auto result = parse_value("3.14");
-    EXPECT_TRUE(result.is_number_float());
-    EXPECT_DOUBLE_EQ(result, 3.14);
+TEST(ParseFloat, SimpleFloats) {
+    EXPECT_DOUBLE_EQ(parse_value("3.14").get<double>(), 3.14);
+    EXPECT_DOUBLE_EQ(parse_value("0.5").get<double>(), 0.5);
+    EXPECT_DOUBLE_EQ(parse_value("-3.14").get<double>(), -3.14);
 }
 
-TEST(ParseValue, FloatNegative) {
-    auto result = parse_value("-2.5");
-    EXPECT_TRUE(result.is_number_float());
-    EXPECT_DOUBLE_EQ(result, -2.5);
+TEST(ParseFloat, ScientificNotation) {
+    EXPECT_DOUBLE_EQ(parse_value("1e10").get<double>(), 1e10);
+    EXPECT_DOUBLE_EQ(parse_value("1E10").get<double>(), 1e10);
+    EXPECT_DOUBLE_EQ(parse_value("1.5e-3").get<double>(), 1.5e-3);
+    EXPECT_DOUBLE_EQ(parse_value("-2.5E+4").get<double>(), -2.5e4);
 }
 
-TEST(ParseValue, FloatScientific) {
-    auto result = parse_value("1.5e10");
-    EXPECT_TRUE(result.is_number_float());
-    EXPECT_DOUBLE_EQ(result, 1.5e10);
-}
-
-// ============================================================================
-// RULE T5: JSON Compound
-// ============================================================================
-
-TEST(ParseValue, JSONObject) {
-    auto result = parse_value(R"({"key":"value"})");
-    EXPECT_TRUE(result.is_object());
-    EXPECT_EQ(result["key"], "value");
-}
-
-TEST(ParseValue, JSONArray) {
-    auto result = parse_value("[1,2,3]");
-    EXPECT_TRUE(result.is_array());
-    ASSERT_EQ(result.size(), 3);
-    EXPECT_EQ(result[0], 1);
-    EXPECT_EQ(result[1], 2);
-    EXPECT_EQ(result[2], 3);
-}
-
-TEST(ParseValue, MalformedJSONFallsThrough) {
-    auto result = parse_value("{invalid}");
-    EXPECT_TRUE(result.is_string());
-    EXPECT_EQ(result, "{invalid}");
+TEST(ParseFloat, SpecialValues) {
+    // Leading decimal
+    EXPECT_DOUBLE_EQ(parse_value(".5").get<double>(), 0.5);
+    // Trailing decimal
+    EXPECT_DOUBLE_EQ(parse_value("5.").get<double>(), 5.0);
 }
 
 // ============================================================================
-// RULE T6: Quoted String
+// RULE T5: JSON Compound Parsing
 // ============================================================================
 
-TEST(ParseValue, QuotedString) {
-    auto result = parse_value(R"("hello")");
-    EXPECT_TRUE(result.is_string());
-    EXPECT_EQ(result, "hello");
+TEST(ParseJson, Arrays) {
+    Value arr = parse_value("[1, 2, 3]");
+    EXPECT_TRUE(arr.is_array());
+    EXPECT_EQ(arr.size(), 3);
+    EXPECT_EQ(arr[0], 1);
+    EXPECT_EQ(arr[1], 2);
+    EXPECT_EQ(arr[2], 3);
 }
 
-TEST(ParseValue, QuotedStringWithSpaces) {
-    auto result = parse_value(R"("hello world")");
-    EXPECT_TRUE(result.is_string());
-    EXPECT_EQ(result, "hello world");
+TEST(ParseJson, NestedArrays) {
+    Value arr = parse_value("[[1, 2], [3, 4]]");
+    EXPECT_TRUE(arr.is_array());
+    EXPECT_EQ(arr.size(), 2);
+    EXPECT_TRUE(arr[0].is_array());
 }
 
-TEST(ParseValue, QuotedStringWithEscapes) {
-    auto result = parse_value(R"("line1\nline2")");
-    EXPECT_TRUE(result.is_string());
-    EXPECT_EQ(result, "line1\nline2");
+TEST(ParseJson, Objects) {
+    Value obj = parse_value(R"({"key": "value"})");
+    EXPECT_TRUE(obj.is_object());
+    EXPECT_EQ(obj["key"], "value");
 }
 
-// ============================================================================
-// RULE T7: Raw String (fallback)
-// ============================================================================
-
-TEST(ParseValue, RawString) {
-    auto result = parse_value("hello");
-    EXPECT_TRUE(result.is_string());
-    EXPECT_EQ(result, "hello");
+TEST(ParseJson, NestedObjects) {
+    Value obj = parse_value(R"({"outer": {"inner": 42}})");
+    EXPECT_TRUE(obj.is_object());
+    EXPECT_EQ(obj["outer"]["inner"], 42);
 }
 
-TEST(ParseValue, EmptyString) {
-    auto result = parse_value("");
-    EXPECT_TRUE(result.is_string());
-    EXPECT_EQ(result, "");
-}
-
-TEST(ParseValue, StringWithSpaces) {
-    auto result = parse_value("hello world");
-    EXPECT_TRUE(result.is_string());
-    EXPECT_EQ(result, "hello world");
+TEST(ParseJson, MixedTypes) {
+    Value obj = parse_value(R"({"str": "hello", "num": 42, "arr": [1, 2]})");
+    EXPECT_EQ(obj["str"], "hello");
+    EXPECT_EQ(obj["num"], 42);
+    EXPECT_TRUE(obj["arr"].is_array());
 }
 
 // ============================================================================
-// Real-world examples
+// RULE T6: Quoted String Parsing
 // ============================================================================
 
-TEST(ParseValue, DatabasePort) {
-    auto result = parse_value("5432");
-    EXPECT_TRUE(result.is_number_integer());
-    EXPECT_EQ(result, 5432);
+TEST(ParseString, DoubleQuoted) {
+    EXPECT_EQ(parse_value("\"hello\""), "hello");
+    EXPECT_EQ(parse_value("\"hello world\""), "hello world");
+    EXPECT_EQ(parse_value("\"\""), "");
 }
 
-TEST(ParseValue, DebugFlag) {
-    auto result = parse_value("true");
-    EXPECT_TRUE(result.is_boolean());
-    EXPECT_EQ(result, true);
+TEST(ParseString, SingleQuoted) {
+    EXPECT_EQ(parse_value("'hello'"), "hello");
+    EXPECT_EQ(parse_value("'hello world'"), "hello world");
+    EXPECT_EQ(parse_value("''"), "");
 }
 
-TEST(ParseValue, LogLevel) {
-    auto result = parse_value("DEBUG");
-    EXPECT_TRUE(result.is_string());
-    EXPECT_EQ(result, "DEBUG");
+TEST(ParseString, EscapeSequences) {
+    EXPECT_EQ(parse_value("\"hello\\nworld\""), "hello\nworld");
+    EXPECT_EQ(parse_value("\"tab\\there\""), "tab\there");
+    EXPECT_EQ(parse_value("\"quote\\\"here\""), "quote\"here");
+    EXPECT_EQ(parse_value("\"back\\\\slash\""), "back\\slash");
 }
 
-TEST(ParseValue, ConnectionString) {
-    auto result = parse_value("postgres://user:pass@localhost:5432/db");
-    EXPECT_TRUE(result.is_string());
-    EXPECT_EQ(result, "postgres://user:pass@localhost:5432/db");
+TEST(ParseString, PreservesQuotedNumbers) {
+    // Quoted numbers should remain strings
+    EXPECT_EQ(parse_value("\"42\""), "42");
+    EXPECT_EQ(parse_value("\"3.14\""), "3.14");
+    EXPECT_EQ(parse_value("\"true\""), "true");
+}
+
+// ============================================================================
+// RULE T7: Raw String Fallback
+// ============================================================================
+
+TEST(ParseRawString, UnquotedStrings) {
+    EXPECT_EQ(parse_value("hello"), "hello");
+    EXPECT_EQ(parse_value("hello_world"), "hello_world");
+    EXPECT_EQ(parse_value("path/to/file"), "path/to/file");
+}
+
+TEST(ParseRawString, StringsWithSpaces) {
+    // Unquoted strings with spaces
+    EXPECT_EQ(parse_value("hello world"), "hello world");
+}
+
+TEST(ParseRawString, MalformedJson) {
+    // Malformed JSON should fall back to string
+    EXPECT_EQ(parse_value("[incomplete"), "[incomplete");
+    EXPECT_EQ(parse_value("{bad:json}"), "{bad:json}");
+}
+
+// ============================================================================
+// Edge Cases
+// ============================================================================
+
+TEST(ParseEdgeCases, EmptyString) {
+    EXPECT_EQ(parse_value(""), "");
+}
+
+TEST(ParseEdgeCases, WhitespaceOnly) {
+    EXPECT_EQ(parse_value("   "), "   ");
+}
+
+TEST(ParseEdgeCases, WhitespaceAround) {
+    // Whitespace should be preserved in raw strings
+    EXPECT_EQ(parse_value("  hello  "), "  hello  ");
+}
+
+TEST(ParseEdgeCases, VeryLongInteger) {
+    // Should handle large integers
+    Value v = parse_value("9223372036854775807");
+    EXPECT_TRUE(v.is_number());
+}
+
+TEST(ParseEdgeCases, NumericPrefix) {
+    // Strings starting with numbers but containing letters
+    EXPECT_EQ(parse_value("123abc"), "123abc");
+    EXPECT_EQ(parse_value("3.14abc"), "3.14abc");
 }

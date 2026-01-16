@@ -20,8 +20,8 @@
 cmake_minimum_required(VERSION 3.20)
 
 project(confy
-    VERSION 0.2.0
-    DESCRIPTION "Configuration management library for C++ (Phase 2: Source Loaders)"
+    VERSION 0.4.0
+    DESCRIPTION "Configuration management library for C++ (Phase 4: CLI Tool)"
     LANGUAGES CXX
 )
 
@@ -61,11 +61,12 @@ endif()
 # Dependencies - System Packages (preferred) or FetchContent (fallback)
 # ============================================================================
 
+include(FetchContent)
+
 # nlohmann/json - JSON value type and parsing
 find_package(nlohmann_json 3.11 QUIET)
 if(NOT nlohmann_json_FOUND)
     message(STATUS "nlohmann_json not found, fetching from source...")
-    include(FetchContent)
     FetchContent_Declare(
         nlohmann_json
         GIT_REPOSITORY https://github.com/nlohmann/json.git
@@ -81,7 +82,6 @@ endif()
 find_package(tomlplusplus 3.4 QUIET)
 if(NOT tomlplusplus_FOUND)
     message(STATUS "tomlplusplus not found, fetching from source...")
-    include(FetchContent)
     FetchContent_Declare(
         tomlplusplus
         GIT_REPOSITORY https://github.com/marzer/tomlplusplus.git
@@ -93,14 +93,17 @@ else()
     message(STATUS "Found tomlplusplus: ${tomlplusplus_VERSION}")
 endif()
 
-# cxxopts - CLI parsing (Phase 4): header-only, inline if not found
+# cxxopts - CLI parsing (Phase 4)
 find_package(cxxopts 3.0 QUIET)
 if(NOT cxxopts_FOUND)
-    message(STATUS "cxxopts not found, creating interface target...")
-    # Create a placeholder interface target; CLI is Phase 4 stub anyway
-    add_library(cxxopts INTERFACE)
-    add_library(cxxopts::cxxopts ALIAS cxxopts)
-    target_compile_definitions(cxxopts INTERFACE CXXOPTS_NOT_AVAILABLE=1)
+    message(STATUS "cxxopts not found, fetching from source...")
+    FetchContent_Declare(
+        cxxopts
+        GIT_REPOSITORY https://github.com/jarro2783/cxxopts.git
+        GIT_TAG        v3.2.0
+        GIT_SHALLOW    TRUE
+    )
+    FetchContent_MakeAvailable(cxxopts)
 else()
     message(STATUS "Found cxxopts: ${cxxopts_VERSION}")
 endif()
@@ -120,7 +123,7 @@ add_library(confy STATIC
     src/EnvMapper.cpp
     src/Loader.cpp
 
-    # Phase 3: Config Class (stub)
+    # Phase 3: Config Class
     src/Config.cpp
 )
 
@@ -140,17 +143,15 @@ target_compile_definitions(confy PUBLIC
 )
 
 # ============================================================================
-# CLI: confy-cpp executable (Phase 4 - stub)
+# CLI: confy-cpp executable (Phase 4)
 # ============================================================================
 
 add_executable(confy-cpp src/cli_main.cpp)
-target_link_libraries(confy-cpp PRIVATE confy)
-# cxxopts only linked if available
-if(TARGET cxxopts::cxxopts)
-    target_link_libraries(confy-cpp PRIVATE cxxopts::cxxopts)
-elseif(TARGET cxxopts)
-    target_link_libraries(confy-cpp PRIVATE cxxopts)
-endif()
+
+target_link_libraries(confy-cpp PRIVATE
+    confy
+    cxxopts
+)
 
 set_target_properties(confy-cpp PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
@@ -166,7 +167,6 @@ if(BUILD_TESTING)
     find_package(GTest QUIET)
     if(NOT GTest_FOUND)
         message(STATUS "GoogleTest not found, fetching from source...")
-        include(FetchContent)
         FetchContent_Declare(
             googletest
             GIT_REPOSITORY https://github.com/google/googletest.git
@@ -184,9 +184,12 @@ if(BUILD_TESTING)
     add_executable(confy_tests
         tests/test_main.cpp
         tests/test_dotpath.cpp
+        tests/test_parse.cpp
+        tests/test_merge.cpp
         tests/test_env_mapper.cpp
         tests/test_loader.cpp
         tests/test_config.cpp
+        tests/test_cli.cpp
     )
 
     target_link_libraries(confy_tests PRIVATE
@@ -267,4 +270,10 @@ message(STATUS "Build type:  ${CMAKE_BUILD_TYPE}")
 message(STATUS "C++ compiler: ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}")
 message(STATUS "Install prefix: ${CMAKE_INSTALL_PREFIX}")
 message(STATUS "Testing: ${BUILD_TESTING}")
+message(STATUS "")
+message(STATUS "Components:")
+message(STATUS "  - Phase 1: Core Infrastructure (complete)")
+message(STATUS "  - Phase 2: Source Loaders (complete)")
+message(STATUS "  - Phase 3: Config Class (complete)")
+message(STATUS "  - Phase 4: CLI Tool (complete)")
 message(STATUS "")

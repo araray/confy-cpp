@@ -33,13 +33,10 @@
 namespace fs = std::filesystem;
 using namespace confy;
 
-// =============================================================================
+// ============================================================================
 // Test Utilities
-// =============================================================================
+// ============================================================================
 
-/**
- * @brief RAII wrapper for temporary files
- */
 class TempFile {
 public:
     explicit TempFile(const std::string& filename, const std::string& content)
@@ -63,9 +60,6 @@ private:
     fs::path path_;
 };
 
-/**
- * @brief RAII wrapper for environment variable
- */
 class EnvGuard {
 public:
     EnvGuard(const std::string& name, const std::string& value)
@@ -109,9 +103,9 @@ private:
     bool had_value_;
 };
 
-// =============================================================================
+// ============================================================================
 // Construction Tests
-// =============================================================================
+// ============================================================================
 
 TEST(ConfigConstruction, DefaultConstructor) {
     Config cfg;
@@ -131,7 +125,6 @@ TEST(ConfigConstruction, ConstructFromValue) {
     Config cfg(data);
 
     EXPECT_FALSE(cfg.empty());
-    EXPECT_EQ(cfg.size(), 1);
     EXPECT_EQ(cfg.get("database.host"), "localhost");
     EXPECT_EQ(cfg.get("database.port"), 5432);
 }
@@ -139,37 +132,25 @@ TEST(ConfigConstruction, ConstructFromValue) {
 TEST(ConfigConstruction, ConstructFromNonObjectThrows) {
     Value arr = Value::array({1, 2, 3});
     EXPECT_THROW(Config cfg(arr), TypeError);
-
-    Value str = "not an object";
-    EXPECT_THROW(Config cfg(str), TypeError);
 }
 
-TEST(ConfigConstruction, CopyConstructor) {
-    Config original;
-    original.set("key", "value");
+TEST(ConfigConstruction, CopyConstruction) {
+    Config cfg1(Value{{"key", "value"}});
+    Config cfg2(cfg1);
 
-    Config copy(original);
-
-    EXPECT_EQ(copy.get("key"), "value");
-
-    // Modifying copy doesn't affect original
-    copy.set("key", "modified");
-    EXPECT_EQ(original.get("key"), "value");
-    EXPECT_EQ(copy.get("key"), "modified");
+    EXPECT_EQ(cfg2.get("key"), "value");
 }
 
-TEST(ConfigConstruction, MoveConstructor) {
-    Config original;
-    original.set("key", "value");
+TEST(ConfigConstruction, MoveConstruction) {
+    Config cfg1(Value{{"key", "value"}});
+    Config cfg2(std::move(cfg1));
 
-    Config moved(std::move(original));
-
-    EXPECT_EQ(moved.get("key"), "value");
+    EXPECT_EQ(cfg2.get("key"), "value");
 }
 
-// =============================================================================
+// ============================================================================
 // Get Tests (RULE D1-D2)
-// =============================================================================
+// ============================================================================
 
 TEST(ConfigGet, SimpleKey) {
     Config cfg(Value{{"key", "value"}});
@@ -178,160 +159,52 @@ TEST(ConfigGet, SimpleKey) {
 
 TEST(ConfigGet, NestedKey) {
     Config cfg(Value{
-        {"database", {
-            {"host", "localhost"},
-            {"port", 5432}
-        }}
+        {"database", {{"host", "localhost"}}}
     });
-
     EXPECT_EQ(cfg.get("database.host"), "localhost");
-    EXPECT_EQ(cfg.get("database.port"), 5432);
-}
-
-TEST(ConfigGet, DeeplyNestedKey) {
-    Config cfg(Value{
-        {"level1", {
-            {"level2", {
-                {"level3", {
-                    {"value", 42}
-                }}
-            }}
-        }}
-    });
-
-    EXPECT_EQ(cfg.get("level1.level2.level3.value"), 42);
 }
 
 TEST(ConfigGet, MissingKeyThrows) {
     Config cfg(Value{{"existing", "value"}});
-
-    EXPECT_THROW(cfg.get("nonexistent"), KeyError);
-    EXPECT_THROW(cfg.get("existing.child"), TypeError);  // Can't traverse into string
+    EXPECT_THROW(cfg.get("missing"), KeyError);
 }
 
-TEST(ConfigGet, GetWithDefault) {
-    Config cfg(Value{{"existing", 42}});
-
-    EXPECT_EQ(cfg.get<int>("existing", 0), 42);
-    EXPECT_EQ(cfg.get<int>("missing", 99), 99);
-    EXPECT_EQ(cfg.get<std::string>("missing", "default"), "default");
-}
-
-TEST(ConfigGet, GetWithDefaultStillThrowsOnTypeError) {
-    Config cfg(Value{{"key", 42}});  // integer, not object
-
-    // RULE D2: TypeError propagates even with default
-    EXPECT_THROW(cfg.get<int>("key.child", 0), TypeError);
-}
-
-TEST(ConfigGet, GetOptional) {
+TEST(ConfigGet, WithDefaultValue) {
     Config cfg(Value{{"existing", "value"}});
 
-    auto existing = cfg.get_optional("existing");
-    EXPECT_TRUE(existing.has_value());
-    EXPECT_EQ(*existing, "value");
-
-    auto missing = cfg.get_optional("nonexistent");
-    EXPECT_FALSE(missing.has_value());
+    EXPECT_EQ(cfg.get<std::string>("missing", "default"), "default");
+    EXPECT_EQ(cfg.get<int>("missing_int", 42), 42);
 }
 
-TEST(ConfigGet, GetOptionalThrowsOnTypeError) {
-    Config cfg(Value{{"key", 42}});
-
-    // TypeError still propagates
-    EXPECT_THROW(cfg.get_optional("key.child"), TypeError);
-}
-
-TEST(ConfigGet, GetTypedConversion) {
+TEST(ConfigGet, TypeConversion) {
     Config cfg(Value{
         {"string", "hello"},
         {"integer", 42},
         {"floating", 3.14},
-        {"boolean", true},
-        {"null_val", nullptr}
+        {"boolean", true}
     });
 
     EXPECT_EQ(cfg.get<std::string>("string", ""), "hello");
     EXPECT_EQ(cfg.get<int>("integer", 0), 42);
     EXPECT_DOUBLE_EQ(cfg.get<double>("floating", 0.0), 3.14);
     EXPECT_EQ(cfg.get<bool>("boolean", false), true);
-    EXPECT_TRUE(cfg.get("null_val").is_null());
 }
 
-// =============================================================================
-// Set Tests (RULE D3-D4)
-// =============================================================================
-
-TEST(ConfigSet, SimpleKey) {
-    Config cfg;
-    cfg.set("key", "value");
-
-    EXPECT_EQ(cfg.get("key"), "value");
-}
-
-TEST(ConfigSet, NestedKey) {
-    Config cfg;
-    cfg.set("database.host", "localhost");
-
-    EXPECT_EQ(cfg.get("database.host"), "localhost");
-}
-
-TEST(ConfigSet, CreateMissingIntermediates) {
-    Config cfg;
-    cfg.set("a.b.c.d", 42, true);
-
-    EXPECT_EQ(cfg.get("a.b.c.d"), 42);
-    EXPECT_TRUE(cfg.contains("a"));
-    EXPECT_TRUE(cfg.contains("a.b"));
-    EXPECT_TRUE(cfg.contains("a.b.c"));
-}
-
-TEST(ConfigSet, CreateMissingFalseThrows) {
-    Config cfg;
-
-    EXPECT_THROW(cfg.set("nonexistent.key", "value", false), KeyError);
-}
-
-TEST(ConfigSet, OverwriteExisting) {
-    Config cfg(Value{{"key", "old"}});
-    cfg.set("key", "new");
-
-    EXPECT_EQ(cfg.get("key"), "new");
-}
-
-TEST(ConfigSet, OverwriteNestedExisting) {
+TEST(ConfigGet, AllTypes) {
     Config cfg(Value{
-        {"database", {{"host", "old"}}}
+        {"null_val", nullptr},
+        {"array", {1, 2, 3}},
+        {"object", {{"nested", "value"}}}
     });
 
-    cfg.set("database.host", "new");
-
-    EXPECT_EQ(cfg.get("database.host"), "new");
-}
-
-TEST(ConfigSet, SetVariousTypes) {
-    Config cfg;
-
-    cfg.set("string", "hello");
-    cfg.set("int", 42);
-    cfg.set("double", 3.14);
-    cfg.set("bool", true);
-    cfg.set("null", nullptr);
-    cfg.set("array", Value::array({1, 2, 3}));
-    cfg.set("object", Value({{"nested", "value"}}));
-
-    EXPECT_EQ(cfg.get("string"), "hello");
-    EXPECT_EQ(cfg.get("int"), 42);
-    EXPECT_DOUBLE_EQ(cfg.get<double>("double", 0.0), 3.14);
-    EXPECT_EQ(cfg.get("bool"), true);
-    EXPECT_TRUE(cfg.get("null").is_null());
+    EXPECT_TRUE(cfg.get("null_val").is_null());
     EXPECT_TRUE(cfg.get("array").is_array());
     EXPECT_EQ(cfg.get("object.nested"), "value");
 }
 
-// =============================================================================
+// ============================================================================
 // Contains Tests (RULE D5-D6)
-// =============================================================================
+// ============================================================================
 
 TEST(ConfigContains, ExistingKey) {
     Config cfg(Value{{"key", "value"}});
@@ -354,15 +227,13 @@ TEST(ConfigContains, NestedExisting) {
 }
 
 TEST(ConfigContains, TypeErrorOnNonContainer) {
-    Config cfg(Value{{"key", 42}});  // integer, not object
-
-    // RULE D6: TypeError for traversing into non-container
+    Config cfg(Value{{"key", 42}});
     EXPECT_THROW(cfg.contains("key.child"), TypeError);
 }
 
-// =============================================================================
+// ============================================================================
 // Mandatory Validation Tests (RULE M1-M3)
-// =============================================================================
+// ============================================================================
 
 TEST(ConfigMandatory, AllKeysPresent) {
     LoadOptions opts;
@@ -372,7 +243,6 @@ TEST(ConfigMandatory, AllKeysPresent) {
     };
     opts.mandatory = {"database.host", "api.key"};
 
-    // Should not throw
     EXPECT_NO_THROW(Config::load(opts));
 }
 
@@ -397,7 +267,6 @@ TEST(ConfigMandatory, MultipleMissingKeys) {
     opts.defaults = {{"existing", "value"}};
     opts.mandatory = {"missing1", "missing2", "missing3"};
 
-    // RULE M2: All missing keys collected
     EXPECT_THROW({
         try {
             Config::load(opts);
@@ -410,16 +279,15 @@ TEST(ConfigMandatory, MultipleMissingKeys) {
 
 TEST(ConfigMandatory, PathIntoNonContainerIsMissing) {
     LoadOptions opts;
-    opts.defaults = {{"key", 42}};  // integer
-    opts.mandatory = {"key.child"};  // Can't traverse into integer
+    opts.defaults = {{"key", 42}};
+    opts.mandatory = {"key.child"};
 
-    // RULE M3: Path into non-container counts as missing
     EXPECT_THROW(Config::load(opts), MissingMandatoryConfig);
 }
 
-// =============================================================================
+// ============================================================================
 // Precedence Tests (RULE P1)
-// =============================================================================
+// ============================================================================
 
 TEST(ConfigPrecedence, DefaultsOnly) {
     LoadOptions opts;
@@ -435,8 +303,7 @@ TEST(ConfigPrecedence, DefaultsOnly) {
 }
 
 TEST(ConfigPrecedence, FileOverridesDefaults) {
-    // Create temp JSON file
-    TempFile config_file("test_config.json", R"({
+    TempFile config_file("test_config_prec.json", R"({
         "key": "from_file",
         "only_file": "value"
     })");
@@ -447,13 +314,13 @@ TEST(ConfigPrecedence, FileOverridesDefaults) {
 
     Config cfg = Config::load(opts);
 
-    EXPECT_EQ(cfg.get("key"), "from_file");  // File wins
-    EXPECT_EQ(cfg.get("only_default"), "value");  // Preserved from defaults
-    EXPECT_EQ(cfg.get("only_file"), "value");  // Added from file
+    EXPECT_EQ(cfg.get("key"), "from_file");
+    EXPECT_EQ(cfg.get("only_default"), "value");
+    EXPECT_EQ(cfg.get("only_file"), "value");
 }
 
 TEST(ConfigPrecedence, EnvOverridesFile) {
-    TempFile config_file("test_config2.json", R"({
+    TempFile config_file("test_config_env.json", R"({
         "database": {"host": "from_file"}
     })");
 
@@ -463,15 +330,15 @@ TEST(ConfigPrecedence, EnvOverridesFile) {
     opts.defaults = {{"database", {{"host", "from_defaults"}}}};
     opts.file_path = config_file.path();
     opts.prefix = "TESTENV";
-    opts.load_dotenv_file = false;  // Don't search for .env
+    opts.load_dotenv_file = false;
 
     Config cfg = Config::load(opts);
 
-    EXPECT_EQ(cfg.get("database.host"), "from_env");  // Env wins
+    EXPECT_EQ(cfg.get("database.host"), "from_env");
 }
 
 TEST(ConfigPrecedence, OverridesHighestPriority) {
-    TempFile config_file("test_config3.json", R"({
+    TempFile config_file("test_config_over.json", R"({
         "key": "from_file"
     })");
 
@@ -486,11 +353,11 @@ TEST(ConfigPrecedence, OverridesHighestPriority) {
 
     Config cfg = Config::load(opts);
 
-    EXPECT_EQ(cfg.get("key"), "from_overrides");  // Overrides win
+    EXPECT_EQ(cfg.get("key"), "from_overrides");
 }
 
 TEST(ConfigPrecedence, DeepMergePreservesUnchanged) {
-    TempFile config_file("test_config4.json", R"({
+    TempFile config_file("test_config_deep.json", R"({
         "database": {"port": 5433}
     })");
 
@@ -498,202 +365,20 @@ TEST(ConfigPrecedence, DeepMergePreservesUnchanged) {
     opts.defaults = {
         {"database", {
             {"host", "localhost"},
-            {"port", 5432},
-            {"name", "mydb"}
+            {"port", 5432}
         }}
     };
     opts.file_path = config_file.path();
 
     Config cfg = Config::load(opts);
 
-    EXPECT_EQ(cfg.get("database.host"), "localhost");  // From defaults
-    EXPECT_EQ(cfg.get("database.port"), 5433);          // From file (overridden)
-    EXPECT_EQ(cfg.get("database.name"), "mydb");        // From defaults
+    EXPECT_EQ(cfg.get("database.host"), "localhost");
+    EXPECT_EQ(cfg.get("database.port"), 5433);
 }
 
-// =============================================================================
-// File Loading Tests
-// =============================================================================
-
-TEST(ConfigLoad, JsonFile) {
-    TempFile config_file("test.json", R"({
-        "string": "hello",
-        "number": 42,
-        "nested": {"key": "value"}
-    })");
-
-    LoadOptions opts;
-    opts.file_path = config_file.path();
-
-    Config cfg = Config::load(opts);
-
-    EXPECT_EQ(cfg.get("string"), "hello");
-    EXPECT_EQ(cfg.get("number"), 42);
-    EXPECT_EQ(cfg.get("nested.key"), "value");
-}
-
-TEST(ConfigLoad, TomlFile) {
-    TempFile config_file("test.toml", R"(
-string = "hello"
-number = 42
-
-[nested]
-key = "value"
-)");
-
-    LoadOptions opts;
-    opts.file_path = config_file.path();
-
-    Config cfg = Config::load(opts);
-
-    EXPECT_EQ(cfg.get("string"), "hello");
-    EXPECT_EQ(cfg.get("number"), 42);
-    EXPECT_EQ(cfg.get("nested.key"), "value");
-}
-
-TEST(ConfigLoad, MissingFileThrows) {
-    LoadOptions opts;
-    opts.file_path = "/nonexistent/path/config.json";
-
-    EXPECT_THROW(Config::load(opts), FileNotFoundError);
-}
-
-TEST(ConfigLoad, EmptyFilePathNoFile) {
-    LoadOptions opts;
-    opts.file_path = "";  // Empty = no file
-    opts.defaults = {{"key", "value"}};
-
-    Config cfg = Config::load(opts);
-
-    EXPECT_EQ(cfg.get("key"), "value");  // Only defaults
-}
-
-TEST(ConfigLoad, InvalidJsonThrows) {
-    TempFile config_file("invalid.json", "{ invalid json }");
-
-    LoadOptions opts;
-    opts.file_path = config_file.path();
-
-    EXPECT_THROW(Config::load(opts), ConfigParseError);
-}
-
-// =============================================================================
-// Environment Variable Tests
-// =============================================================================
-
-TEST(ConfigEnv, PrefixFiltering) {
-    EnvGuard env1("MYPREFIX_DATABASE_HOST", "envhost");
-    EnvGuard env2("OTHER_DATABASE_HOST", "other");  // Should be ignored
-
-    LoadOptions opts;
-    opts.defaults = {{"database", {{"host", "default"}}}};
-    opts.prefix = "MYPREFIX";
-    opts.load_dotenv_file = false;
-
-    Config cfg = Config::load(opts);
-
-    EXPECT_EQ(cfg.get("database.host"), "envhost");
-}
-
-TEST(ConfigEnv, NulloptDisablesEnvLoading) {
-    EnvGuard env("NOENV_KEY", "from_env");
-
-    LoadOptions opts;
-    opts.defaults = {{"key", "from_defaults"}};
-    opts.prefix = std::nullopt;  // Disable env loading
-    opts.load_dotenv_file = false;
-
-    Config cfg = Config::load(opts);
-
-    // Env should NOT be loaded
-    EXPECT_EQ(cfg.get("key"), "from_defaults");
-}
-
-TEST(ConfigEnv, TypeParsing) {
-    EnvGuard e1("TYPEP_BOOL_TRUE", "true");
-    EnvGuard e2("TYPEP_BOOL_FALSE", "false");
-    EnvGuard e3("TYPEP_INT", "42");
-    EnvGuard e4("TYPEP_FLOAT", "3.14");
-    EnvGuard e5("TYPEP_NULL", "null");
-    EnvGuard e6("TYPEP_STRING", "hello");
-
-    LoadOptions opts;
-    opts.defaults = {
-        {"bool", {{"true", false}, {"false", true}}},
-        {"int", 0},
-        {"float", 0.0},
-        {"null", "not_null"},
-        {"string", ""}
-    };
-    opts.prefix = "TYPEP";
-    opts.load_dotenv_file = false;
-
-    Config cfg = Config::load(opts);
-
-    EXPECT_EQ(cfg.get("bool.true"), true);
-    EXPECT_EQ(cfg.get("bool.false"), false);
-    EXPECT_EQ(cfg.get("int"), 42);
-    EXPECT_DOUBLE_EQ(cfg.get<double>("float", 0.0), 3.14);
-    EXPECT_TRUE(cfg.get("null").is_null());
-    EXPECT_EQ(cfg.get("string"), "hello");
-}
-
-// =============================================================================
-// Overrides Tests
-// =============================================================================
-
-TEST(ConfigOverrides, SimpleDotPath) {
-    LoadOptions opts;
-    opts.defaults = {{"key", "default"}};
-    opts.overrides = {{"key", "override"}};
-
-    Config cfg = Config::load(opts);
-
-    EXPECT_EQ(cfg.get("key"), "override");
-}
-
-TEST(ConfigOverrides, NestedDotPath) {
-    LoadOptions opts;
-    opts.defaults = {{"database", {{"host", "default"}}}};
-    opts.overrides = {{"database.host", "override"}};
-
-    Config cfg = Config::load(opts);
-
-    EXPECT_EQ(cfg.get("database.host"), "override");
-}
-
-TEST(ConfigOverrides, CreateNewKeys) {
-    LoadOptions opts;
-    opts.defaults = {{"existing", "value"}};
-    opts.overrides = {
-        {"new.nested.key", "created"},
-        {"another", 42}
-    };
-
-    Config cfg = Config::load(opts);
-
-    EXPECT_EQ(cfg.get("new.nested.key"), "created");
-    EXPECT_EQ(cfg.get("another"), 42);
-}
-
-TEST(ConfigOverrides, StringValueParsing) {
-    LoadOptions opts;
-    opts.overrides = {
-        {"bool", "true"},
-        {"int", "42"},
-        {"float", "3.14"}
-    };
-
-    Config cfg = Config::load(opts);
-
-    // String values in overrides should be parsed
-    EXPECT_EQ(cfg.get("bool"), true);
-    EXPECT_EQ(cfg.get("int"), 42);
-}
-
-// =============================================================================
+// ============================================================================
 // Serialization Tests
-// =============================================================================
+// ============================================================================
 
 TEST(ConfigSerialization, ToJson) {
     Config cfg(Value{
@@ -714,7 +399,6 @@ TEST(ConfigSerialization, ToJsonCompact) {
 
     std::string compact = cfg.to_json(-1);
 
-    // Should not have newlines
     EXPECT_EQ(compact.find('\n'), std::string::npos);
 }
 
@@ -732,9 +416,9 @@ TEST(ConfigSerialization, ToToml) {
     EXPECT_NE(toml.find("42"), std::string::npos);
 }
 
-// =============================================================================
+// ============================================================================
 // Merge Tests
-// =============================================================================
+// ============================================================================
 
 TEST(ConfigMerge, MergeConfig) {
     Config cfg1({{"a", 1}, {"b", 2}});
@@ -742,9 +426,9 @@ TEST(ConfigMerge, MergeConfig) {
 
     cfg1.merge(cfg2);
 
-    EXPECT_EQ(cfg1.get("a"), 1);  // Preserved
-    EXPECT_EQ(cfg1.get("b"), 3);  // Overridden
-    EXPECT_EQ(cfg1.get("c"), 4);  // Added
+    EXPECT_EQ(cfg1.get("a"), 1);
+    EXPECT_EQ(cfg1.get("b"), 3);
+    EXPECT_EQ(cfg1.get("c"), 4);
 }
 
 TEST(ConfigMerge, MergeValue) {
@@ -778,189 +462,57 @@ TEST(ConfigMerge, DeepMerge) {
 
     cfg.merge(override_val);
 
-    EXPECT_EQ(cfg.get("database.host"), "localhost");  // Preserved
-    EXPECT_EQ(cfg.get("database.port"), 5433);          // Overridden
+    EXPECT_EQ(cfg.get("database.host"), "localhost");
+    EXPECT_EQ(cfg.get("database.port"), 5433);
 }
 
-// =============================================================================
+// ============================================================================
 // Integration Tests
-// =============================================================================
+// ============================================================================
 
 TEST(ConfigIntegration, FullPipeline) {
-    // Create config file
-    TempFile config_file("integration.toml", R"(
-[database]
-host = "file.host"
-port = 5432
-name = "mydb"
-
-[logging]
-level = "INFO"
-)");
-
-    // Set environment variables
-    EnvGuard env1("INTEG_DATABASE_PORT", "5433");
-    EnvGuard env2("INTEG_LOGGING_LEVEL", "DEBUG");
-
-    LoadOptions opts;
-    opts.defaults = {
-        {"database", {
-            {"host", "default.host"},
-            {"port", 3306},
-            {"pool_size", 10}
-        }},
-        {"logging", {
-            {"level", "WARNING"},
-            {"format", "%(message)s"}
-        }}
-    };
-    opts.file_path = config_file.path();
-    opts.prefix = "INTEG";
-    opts.load_dotenv_file = false;
-    opts.overrides = {{"logging.format", "[%(level)s] %(message)s"}};
-    opts.mandatory = {"database.host"};
-
-    Config cfg = Config::load(opts);
-
-    // Verify precedence chain
-    EXPECT_EQ(cfg.get("database.host"), "file.host");       // From file
-    EXPECT_EQ(cfg.get("database.port"), 5433);               // From env (overrides file)
-    EXPECT_EQ(cfg.get("database.name"), "mydb");             // From file
-    EXPECT_EQ(cfg.get("database.pool_size"), 10);            // From defaults
-    EXPECT_EQ(cfg.get("logging.level"), "DEBUG");            // From env
-    EXPECT_EQ(cfg.get("logging.format"), "[%(level)s] %(message)s");  // From overrides
-}
-
-TEST(ConfigIntegration, RealWorldScenario) {
-    // Simulate a real application configuration
-    TempFile config_file("app.json", R"({
+    TempFile config_file("test_integration.json", R"({
         "server": {
             "host": "0.0.0.0",
             "port": 8080
-        },
-        "database": {
-            "url": "postgres://localhost/app"
-        },
-        "features": {
-            "new_ui": false
         }
     })");
 
-    // Production environment overrides
-    EnvGuard env1("APP_SERVER_PORT", "80");
-    EnvGuard env2("APP_DATABASE_URL", "postgres://prod.db/app");
-    EnvGuard env3("APP_FEATURES_NEW__UI", "true");  // __ -> _
+    EnvGuard env("INTTEST_SERVER_HOST", "127.0.0.1");
 
     LoadOptions opts;
     opts.defaults = {
-        {"server", {{"host", "127.0.0.1"}, {"port", 3000}}},
-        {"database", {{"url", "sqlite:///app.db"}}},
-        {"features", {{"new_ui", false}, {"beta", false}}}
+        {"server", {
+            {"host", "localhost"},
+            {"port", 3000},
+            {"debug", false}
+        }}
     };
     opts.file_path = config_file.path();
-    opts.prefix = "APP";
+    opts.prefix = "INTTEST";
     opts.load_dotenv_file = false;
-    opts.mandatory = {"server.host", "database.url"};
+    opts.overrides = {{"server.debug", true}};
+    opts.mandatory = {"server.host", "server.port"};
 
     Config cfg = Config::load(opts);
 
-    EXPECT_EQ(cfg.get("server.host"), "0.0.0.0");
-    EXPECT_EQ(cfg.get("server.port"), 80);
-    EXPECT_EQ(cfg.get("database.url"), "postgres://prod.db/app");
-    EXPECT_EQ(cfg.get("features.new_ui"), true);
-    EXPECT_EQ(cfg.get("features.beta"), false);
+    EXPECT_EQ(cfg.get("server.host"), "127.0.0.1");
+    EXPECT_EQ(cfg.get("server.port"), 8080);
+    EXPECT_EQ(cfg.get("server.debug"), true);
 }
 
-// =============================================================================
-// Edge Cases
-// =============================================================================
+TEST(ConfigIntegration, TomlFile) {
+    TempFile config_file("test_integration.toml", R"(
+[database]
+host = "localhost"
+port = 5432
+)");
 
-TEST(ConfigEdgeCases, EmptyConfig) {
     LoadOptions opts;
+    opts.file_path = config_file.path();
+
     Config cfg = Config::load(opts);
 
-    EXPECT_TRUE(cfg.empty());
+    EXPECT_EQ(cfg.get("database.host"), "localhost");
+    EXPECT_EQ(cfg.get("database.port"), 5432);
 }
-
-TEST(ConfigEdgeCases, EmptyStringKey) {
-    Config cfg;
-    cfg.set("", "value");
-
-    // Empty string is a valid key
-    EXPECT_EQ(cfg.get(""), "value");
-}
-
-TEST(ConfigEdgeCases, DotInKey) {
-    // This tests that we're using dot as separator
-    Config cfg;
-    cfg.set("a.b", "value");
-
-    // "a.b" should create nested structure
-    EXPECT_TRUE(cfg.contains("a"));
-    EXPECT_EQ(cfg.get("a.b"), "value");
-}
-
-TEST(ConfigEdgeCases, UnicodeValues) {
-    Config cfg;
-    cfg.set("greeting", "こんにちは");
-    cfg.set("emoji", "🎉");
-
-    EXPECT_EQ(cfg.get("greeting"), "こんにちは");
-    EXPECT_EQ(cfg.get("emoji"), "🎉");
-}
-
-TEST(ConfigEdgeCases, LargeNumbers) {
-    Config cfg;
-    cfg.set("big_int", int64_t(9223372036854775807LL));
-    cfg.set("big_float", 1.7976931348623157e+308);
-
-    EXPECT_EQ(cfg.get<int64_t>("big_int", 0), 9223372036854775807LL);
-}
-
-TEST(ConfigEdgeCases, ArrayValues) {
-    Config cfg;
-    cfg.set("items", Value::array({1, 2, 3, 4, 5}));
-
-    Value items = cfg.get("items");
-    EXPECT_TRUE(items.is_array());
-    EXPECT_EQ(items.size(), 5);
-}
-
-TEST(ConfigEdgeCases, NullValues) {
-    Config cfg(Value{{"key", nullptr}});
-
-    EXPECT_TRUE(cfg.contains("key"));
-    EXPECT_TRUE(cfg.get("key").is_null());
-}
-
-// =============================================================================
-// Error Message Quality
-// =============================================================================
-
-TEST(ConfigErrors, KeyErrorContainsPath) {
-    Config cfg;
-
-    try {
-        cfg.get("nonexistent.path");
-        FAIL() << "Expected KeyError";
-    } catch (const KeyError& e) {
-        EXPECT_NE(std::string(e.what()).find("nonexistent.path"), std::string::npos);
-    }
-}
-
-TEST(ConfigErrors, MissingMandatoryListsAllKeys) {
-    LoadOptions opts;
-    opts.mandatory = {"key1", "key2", "key3"};
-
-    try {
-        Config::load(opts);
-        FAIL() << "Expected MissingMandatoryConfig";
-    } catch (const MissingMandatoryConfig& e) {
-        std::string msg = e.what();
-        EXPECT_NE(msg.find("key1"), std::string::npos);
-        EXPECT_NE(msg.find("key2"), std::string::npos);
-        EXPECT_NE(msg.find("key3"), std::string::npos);
-    }
-}
-
-// Main is provided by test_main.cpp

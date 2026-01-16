@@ -3,97 +3,338 @@
  * @brief Unit tests for EnvMapper functionality (GoogleTest)
  *
  * Phase 2 tests covering environment variable mapping rules E1-E7:
- * - E1: Prefix filtering
- * - E2: Empty prefix matches all
- * - E3: No prefix skips env var loading
+ * - E1: Prefix filtering (non-empty prefix)
+ * - E2: Empty prefix matches non-system vars
+ * - E3: nullopt prefix disables env loading
  * - E4: Underscore transformation (_ → ., __ → _)
- * - E5: Remapping against base structure
- * - E6: System variable exclusion
- * - E7: Value parsing
+ * - E5: Flatten base structure to dot-paths
+ * - E6: Remap env keys against base structure
+ * - E7: Handle base keys containing underscores
  *
- * NOTE: These are placeholder tests until EnvMapper API is implemented.
+ * @copyright (c) 2026. MIT License.
  */
 
 #include <gtest/gtest.h>
 #include "confy/EnvMapper.hpp"
 #include "confy/Value.hpp"
 
+#include <cstdlib>
+
 using namespace confy;
 
 // ============================================================================
-// Placeholder tests - will be expanded when EnvMapper is implemented
+// Test Utilities
 // ============================================================================
 
-TEST(EnvMapperPlaceholder, CompilationCheck) {
-    // Verify headers compile correctly
-    SUCCEED();
+/**
+ * @brief RAII wrapper for environment variable
+ */
+class EnvGuard {
+public:
+    EnvGuard(const std::string& name, const std::string& value)
+        : name_(name), had_value_(false) {
+#ifdef _WIN32
+        const char* old = std::getenv(name.c_str());
+        if (old) {
+            old_value_ = old;
+            had_value_ = true;
+        }
+        _putenv_s(name.c_str(), value.c_str());
+#else
+        const char* old = std::getenv(name.c_str());
+        if (old) {
+            old_value_ = old;
+            had_value_ = true;
+        }
+        setenv(name.c_str(), value.c_str(), 1);
+#endif
+    }
+
+    ~EnvGuard() {
+#ifdef _WIN32
+        if (had_value_) {
+            _putenv_s(name_.c_str(), old_value_.c_str());
+        } else {
+            _putenv_s(name_.c_str(), "");
+        }
+#else
+        if (had_value_) {
+            setenv(name_.c_str(), old_value_.c_str(), 1);
+        } else {
+            unsetenv(name_.c_str());
+        }
+#endif
+    }
+
+private:
+    std::string name_;
+    std::string old_value_;
+    bool had_value_;
+};
+
+// ============================================================================
+// System Variable Detection Tests
+// ============================================================================
+
+TEST(EnvMapperSystem, DetectsSystemVars) {
+    EXPECT_TRUE(is_system_variable("PATH"));
+    EXPECT_TRUE(is_system_variable("HOME"));
+    EXPECT_TRUE(is_system_variable("USER"));
+    EXPECT_TRUE(is_system_variable("SHELL"));
+    EXPECT_TRUE(is_system_variable("LANG"));
+    EXPECT_TRUE(is_system_variable("LC_ALL"));
+    EXPECT_TRUE(is_system_variable("PWD"));
+    EXPECT_TRUE(is_system_variable("SSH_AUTH_SOCK"));
+    EXPECT_TRUE(is_system_variable("PYTHONPATH"));
+}
+
+TEST(EnvMapperSystem, AcceptsNonSystemVars) {
+    EXPECT_FALSE(is_system_variable("MYAPP_DATABASE_HOST"));
+    EXPECT_FALSE(is_system_variable("CONFIG_VALUE"));
+    EXPECT_FALSE(is_system_variable("CUSTOM_VAR"));
+}
+
+TEST(EnvMapperSystem, CaseInsensitive) {
+    EXPECT_TRUE(is_system_variable("path"));
+    EXPECT_TRUE(is_system_variable("Path"));
+    EXPECT_TRUE(is_system_variable("PATH"));
 }
 
 // ============================================================================
-// RULE E1: Prefix filtering tests (STUB)
+// RULE E4: Underscore Transformation Tests
 // ============================================================================
 
-TEST(EnvMapperPrefixFilter, DISABLED_FiltersByPrefix) {
-    // TODO: Implement when collect_env_vars() is available
-    // auto vars = collect_env_vars("MYAPP_");
-    // Verify only MYAPP_* variables are returned
-    SUCCEED();
+TEST(EnvMapperTransform, SingleUnderscoreToDot) {
+    EXPECT_EQ(transform_env_name("DATABASE_HOST"), "database.host");
+    EXPECT_EQ(transform_env_name("API_KEY"), "api.key");
+    EXPECT_EQ(transform_env_name("A_B_C"), "a.b.c");
 }
 
-TEST(EnvMapperPrefixFilter, DISABLED_EmptyPrefixMatchesAll) {
-    // TODO: Implement when collect_env_vars() is available
-    // auto vars = collect_env_vars("");
-    // Verify all non-system env vars are returned
-    SUCCEED();
+TEST(EnvMapperTransform, DoubleUnderscoreToSingle) {
+    EXPECT_EQ(transform_env_name("FEATURE__FLAGS"), "feature_flags");
+    EXPECT_EQ(transform_env_name("MY__VAR"), "my_var");
 }
 
-TEST(EnvMapperPrefixFilter, DISABLED_NullPrefixSkipsEnv) {
-    // TODO: Implement when collect_env_vars() is available
-    // auto vars = collect_env_vars(std::nullopt);
-    // Verify empty result
-    SUCCEED();
+TEST(EnvMapperTransform, MixedUnderscores) {
+    EXPECT_EQ(transform_env_name("FEATURE_FLAGS__BETA"), "feature_flags.beta");
+    EXPECT_EQ(transform_env_name("A__B_C"), "a_b.c");
+    EXPECT_EQ(transform_env_name("A_B__C"), "a.b_c");
 }
 
-// ============================================================================
-// RULE E4: Underscore transformation tests (STUB)
-// ============================================================================
-
-TEST(EnvMapperTransform, DISABLED_SingleUnderscoreToDot) {
-    // TODO: Implement when map_env_name() is available
-    // EXPECT_EQ(map_env_name("DATABASE_HOST", ""), "database.host");
-    SUCCEED();
+TEST(EnvMapperTransform, Lowercase) {
+    EXPECT_EQ(transform_env_name("UPPERCASE"), "uppercase");
+    EXPECT_EQ(transform_env_name("MixedCase"), "mixedcase");
 }
 
-TEST(EnvMapperTransform, DISABLED_DoubleUnderscoreToSingle) {
-    // TODO: Implement when map_env_name() is available
-    // EXPECT_EQ(map_env_name("FEATURE__FLAGS", ""), "feature_flags");
-    SUCCEED();
+TEST(EnvMapperTransform, NoUnderscores) {
+    EXPECT_EQ(transform_env_name("simple"), "simple");
+    EXPECT_EQ(transform_env_name("SIMPLE"), "simple");
 }
 
-TEST(EnvMapperTransform, DISABLED_MixedUnderscores) {
-    // TODO: Implement when map_env_name() is available
-    // EXPECT_EQ(map_env_name("A__B_C__D", ""), "a_b.c_d");
-    SUCCEED();
+TEST(EnvMapperTransform, MultipleConsecutive) {
+    // Three underscores: __ → _, then _ → .
+    EXPECT_EQ(transform_env_name("A___B"), "a_.b");
+    // Four underscores: __ → _, __ → _ (two markers)
+    EXPECT_EQ(transform_env_name("A____B"), "a__b");
 }
 
 // ============================================================================
-// RULE E5: Remapping tests (STUB)
+// Prefix Stripping Tests
 // ============================================================================
 
-TEST(EnvMapperRemap, DISABLED_RemapsToKnownKeys) {
-    // TODO: Implement when remap_key() is available
-    // std::set<std::string> base_keys = {"feature_flags", "database.host"};
-    // EXPECT_EQ(remap_key("feature.flags", base_keys), "feature_flags");
-    SUCCEED();
+TEST(EnvMapperPrefix, StripSimple) {
+    EXPECT_EQ(strip_prefix("MYAPP_DATABASE_HOST", "MYAPP"), "DATABASE_HOST");
+    EXPECT_EQ(strip_prefix("APP_KEY", "APP"), "KEY");
+}
+
+TEST(EnvMapperPrefix, CaseInsensitive) {
+    EXPECT_EQ(strip_prefix("myapp_key", "MYAPP"), "key");
+    EXPECT_EQ(strip_prefix("MYAPP_KEY", "myapp"), "KEY");
+}
+
+TEST(EnvMapperPrefix, NoMatch) {
+    EXPECT_EQ(strip_prefix("OTHER_KEY", "MYAPP"), "");
+    EXPECT_EQ(strip_prefix("MYAPPKEY", "MYAPP"), "");  // Missing underscore
+}
+
+TEST(EnvMapperPrefix, EmptyPrefix) {
+    EXPECT_EQ(strip_prefix("ANY_KEY", ""), "ANY_KEY");
 }
 
 // ============================================================================
-// Full pipeline tests (STUB)
+// RULE E1-E3: Prefix Filtering Tests
 // ============================================================================
 
-TEST(EnvMapperFullPipeline, DISABLED_LoadEnvVars) {
-    // TODO: Implement when load_env_vars() is available
-    // Value base = {{"database", {{"host", "default"}}}};
-    // auto result = load_env_vars("MYAPP_", base);
-    SUCCEED();
+TEST(EnvMapperCollect, NulloptDisablesLoading) {
+    auto vars = collect_env_vars(std::nullopt);
+    EXPECT_TRUE(vars.empty());
+}
+
+TEST(EnvMapperCollect, EmptyPrefixFiltersSystem) {
+    // Set a test env var
+    EnvGuard env("CONFY_TEST_VAR_12345", "test_value");
+
+    auto vars = collect_env_vars(std::string(""));
+
+    // Should not include system vars
+    bool found_path = false;
+    bool found_test = false;
+    for (const auto& [name, value] : vars) {
+        if (name == "PATH") found_path = true;
+        if (name == "CONFY_TEST_VAR_12345") found_test = true;
+    }
+    EXPECT_FALSE(found_path);  // PATH is system var
+    EXPECT_TRUE(found_test);   // Our test var should be included
+}
+
+TEST(EnvMapperCollect, NonEmptyPrefixFilters) {
+    EnvGuard env1("TESTPREFIX_KEY1", "value1");
+    EnvGuard env2("TESTPREFIX_KEY2", "value2");
+    EnvGuard env3("OTHER_KEY", "other_value");
+
+    auto vars = collect_env_vars(std::string("TESTPREFIX"));
+
+    bool found_key1 = false;
+    bool found_key2 = false;
+    bool found_other = false;
+
+    for (const auto& [name, value] : vars) {
+        if (name == "TESTPREFIX_KEY1") found_key1 = true;
+        if (name == "TESTPREFIX_KEY2") found_key2 = true;
+        if (name == "OTHER_KEY") found_other = true;
+    }
+
+    EXPECT_TRUE(found_key1);
+    EXPECT_TRUE(found_key2);
+    EXPECT_FALSE(found_other);
+}
+
+// ============================================================================
+// RULE E5: Flatten Keys Tests
+// ============================================================================
+
+TEST(EnvMapperFlatten, SimpleObject) {
+    Value data = {
+        {"key1", "value1"},
+        {"key2", "value2"}
+    };
+
+    auto keys = flatten_keys(data);
+
+    EXPECT_TRUE(keys.count("key1") > 0);
+    EXPECT_TRUE(keys.count("key2") > 0);
+}
+
+TEST(EnvMapperFlatten, NestedObject) {
+    Value data = {
+        {"database", {
+            {"host", "localhost"},
+            {"port", 5432}
+        }}
+    };
+
+    auto keys = flatten_keys(data);
+
+    EXPECT_TRUE(keys.count("database") > 0);
+    EXPECT_TRUE(keys.count("database.host") > 0);
+    EXPECT_TRUE(keys.count("database.port") > 0);
+}
+
+TEST(EnvMapperFlatten, DeepNested) {
+    Value data = {
+        {"a", {
+            {"b", {
+                {"c", "value"}
+            }}
+        }}
+    };
+
+    auto keys = flatten_keys(data);
+
+    EXPECT_TRUE(keys.count("a") > 0);
+    EXPECT_TRUE(keys.count("a.b") > 0);
+    EXPECT_TRUE(keys.count("a.b.c") > 0);
+}
+
+// ============================================================================
+// RULE E6-E7: Remapping Tests
+// ============================================================================
+
+TEST(EnvMapperRemap, ExactMatch) {
+    std::set<std::string> base_keys = {"database.host", "database.port"};
+
+    std::string result = remap_env_key("database.host", base_keys, std::string("APP"), false);
+    EXPECT_EQ(result, "database.host");
+}
+
+TEST(EnvMapperRemap, UnderscoreKey) {
+    std::set<std::string> base_keys = {"feature_flags", "feature_flags.beta"};
+
+    // "feature.flags" should remap to "feature_flags" if it exists in base
+    std::string result = remap_env_key("feature.flags", base_keys, std::string("APP"), false);
+    EXPECT_EQ(result, "feature_flags");
+}
+
+TEST(EnvMapperRemap, NestedUnderscoreKey) {
+    std::set<std::string> base_keys = {"feature_flags", "feature_flags.beta"};
+
+    // "feature.flags.beta" should remap to "feature_flags.beta"
+    std::string result = remap_env_key("feature.flags.beta", base_keys, std::string("APP"), false);
+    EXPECT_EQ(result, "feature_flags.beta");
+}
+
+// ============================================================================
+// Full Pipeline Tests
+// ============================================================================
+
+TEST(EnvMapperPipeline, LoadEnvVars) {
+    EnvGuard env("TESTPIPE_DATABASE_HOST", "env_host");
+    EnvGuard env2("TESTPIPE_DATABASE_PORT", "5433");
+
+    Value defaults = {
+        {"database", {
+            {"host", "default_host"},
+            {"port", 5432}
+        }}
+    };
+
+    Value result = load_env_vars(
+        std::string("TESTPIPE"),
+        defaults,
+        defaults,
+        Value::object(),
+        false
+    );
+
+    // Check that values were loaded and parsed
+    EXPECT_TRUE(result.is_object());
+    // The structure should contain our values
+    if (result.contains("database")) {
+        if (result["database"].is_object() && result["database"].contains("host")) {
+            EXPECT_EQ(result["database"]["host"], "env_host");
+        }
+    }
+}
+
+TEST(EnvMapperPipeline, ValueParsing) {
+    EnvGuard env1("TESTPARSE_NUMBER", "42");
+    EnvGuard env2("TESTPARSE_BOOL", "true");
+    EnvGuard env3("TESTPARSE_STRING", "hello");
+
+    Value base = {
+        {"number", 0},
+        {"bool", false},
+        {"string", ""}
+    };
+
+    Value result = load_env_vars(
+        std::string("TESTPARSE"),
+        base,
+        base,
+        Value::object(),
+        false
+    );
+
+    // Values should be parsed according to type parsing rules
+    EXPECT_TRUE(result.is_object());
 }

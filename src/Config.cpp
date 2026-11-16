@@ -65,7 +65,7 @@ Config Config::load(const LoadOptions& opts) {
         // - Missing file throws FileNotFoundError
         // - Auto-detects JSON/TOML by extension
         // - TOML key promotion based on defaults
-        file_data = load_config_file(opts.file_path, merged);
+        file_data = load_config_file(opts.file_path, opts.toml_key_promotion ? merged : Value::object());
         merged = deep_merge(merged, file_data);
     }
 

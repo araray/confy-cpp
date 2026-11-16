@@ -516,3 +516,32 @@ port = 5432
     EXPECT_EQ(cfg.get("database.host"), "localhost");
     EXPECT_EQ(cfg.get("database.port"), 5432);
 }
+
+// ============================================================================
+// C-06: TOML key promotion can be switched off
+// ============================================================================
+
+TEST(ConfigLoad, TomlKeyPromotionIsOnByDefault) {
+    TempFile file("confy_promotion_on.toml", "[section]\ndebug = true\n");
+    LoadOptions opts;
+    opts.file_path = file.path();
+    opts.prefix = std::nullopt;
+    opts.load_dotenv_file = false;
+    opts.defaults = {{"debug", false}};
+    Config cfg = Config::load(opts);
+    EXPECT_TRUE(cfg.get<bool>("debug", false));        // promoted to the root
+    EXPECT_FALSE(cfg.contains("section.debug"));
+}
+
+TEST(ConfigLoad, TomlKeyPromotionCanBeDisabled) {
+    TempFile file("confy_promotion_off.toml", "[section]\ndebug = true\n");
+    LoadOptions opts;
+    opts.file_path = file.path();
+    opts.prefix = std::nullopt;
+    opts.load_dotenv_file = false;
+    opts.defaults = {{"debug", false}};
+    opts.toml_key_promotion = false;
+    Config cfg = Config::load(opts);
+    EXPECT_FALSE(cfg.get<bool>("debug", true));        // the default stays
+    EXPECT_TRUE(cfg.get<bool>("section.debug", false)); // read as written
+}

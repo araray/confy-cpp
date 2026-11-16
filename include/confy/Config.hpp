@@ -55,6 +55,15 @@ struct LoadOptions {
     std::string file_path;
 
     /**
+     * @brief Whether TOML key promotion applies to the file (C-06)
+     *
+     * When true (the default, for parity with the Python library), dotted
+     * TOML keys are promoted to nested tables guided by `defaults`. When
+     * false, the file is read exactly as written.
+     */
+    bool toml_key_promotion = true;
+
+    /**
      * @brief Environment variable prefix for filtering
      *
      * Controls which environment variables are loaded:

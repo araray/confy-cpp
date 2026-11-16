@@ -353,3 +353,17 @@ TEST(LoaderExtension, NoExtension) {
     EXPECT_EQ(get_file_extension("noext"), "");
     EXPECT_EQ(get_file_extension("path/noext"), "");
 }
+
+// Regression (found by Sigilo's fuzz_config): non-ASCII letters next to keys
+// and values must not reach undefined behaviour inside toml++.
+TEST(LoaderToml, NonAsciiLettersAreHandled) {
+    TempFile file("test_non_ascii.toml", "[\"seção\"]\nnome = \"João\"\n\"число\" = 1\n");
+    Value v = load_toml_file(file.path());
+    EXPECT_EQ(v["seção"]["nome"], "João");
+    EXPECT_EQ(v["seção"]["число"], 1);
+    // TOML 1.0 bare keys are ASCII: rejected cleanly, not undefined behaviour.
+    TempFile bad("test_non_ascii_bad.toml", "[x]\nkey\xd1\xb0 = 2\n");
+    EXPECT_THROW(load_toml_file(bad.path()), std::exception);
+    TempFile bad2("test_non_ascii_bad2.toml", "[seção]\n");
+    EXPECT_THROW(load_toml_file(bad2.path()), std::exception);
+}

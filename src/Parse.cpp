@@ -24,13 +24,15 @@ namespace {
     /**
      * @brief Check if string matches regex pattern
      */
-    bool matches_regex(const std::string& str, const std::string& pattern) {
-        try {
-            std::regex re(pattern);
-            return std::regex_match(str, re);
-        } catch (...) {
-            return false;
-        }
+    // The patterns are compiled once (C-10): parse_value runs for every
+    // environment variable and override.
+    const std::regex& integer_pattern() {
+        static const std::regex re("^-?[0-9]+$");
+        return re;
+    }
+    const std::regex& float_pattern() {
+        static const std::regex re("^-?[0-9]+\\.[0-9]+([eE][+-]?[0-9]+)?$");
+        return re;
     }
 }
 
@@ -56,7 +58,7 @@ Value parse_value(const std::string& str) {
 
     // T3: Integer
     // Pattern: ^-?[0-9]+$
-    if (matches_regex(str, "^-?[0-9]+$")) {
+    if (std::regex_match(str, integer_pattern())) {
         try {
             // Try to parse as int64
             size_t pos = 0;
@@ -72,7 +74,7 @@ Value parse_value(const std::string& str) {
 
     // T4: Float
     // Pattern: ^-?[0-9]+\.[0-9]+([eE][+-]?[0-9]+)?$
-    if (matches_regex(str, "^-?[0-9]+\\.[0-9]+([eE][+-]?[0-9]+)?$")) {
+    if (std::regex_match(str, float_pattern())) {
         try {
             size_t pos = 0;
             double val = std::stod(str, &pos);

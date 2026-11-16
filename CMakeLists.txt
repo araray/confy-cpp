@@ -33,14 +33,26 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Consumers that add confy-cpp as a subdirectory get the library only (C-08).
+if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
+    set(_confy_top_level ON)
+else()
+    set(_confy_top_level OFF)
+endif()
+option(CONFY_BUILD_CLI "Build the confy-cpp command-line tool" ${_confy_top_level})
+option(CONFY_BUILD_TESTS "Build the confy-cpp tests" ${_confy_top_level})
+
+# Warnings apply to confy's own targets, not to the including project.
+add_library(confy_warnings INTERFACE)
+
 # Compiler-specific flags
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    add_compile_options(-Wall -Wextra -Wpedantic -Werror=return-type)
+    target_compile_options(confy_warnings INTERFACE -Wall -Wextra -Wpedantic -Werror=return-type)
     if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 11)
         message(FATAL_ERROR "GCC 11+ required for C++17 support")
     endif()
 elseif(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
-    add_compile_options(-Wall -Wextra -Wpedantic -Werror=return-type)
+    target_compile_options(confy_warnings INTERFACE -Wall -Wextra -Wpedantic -Werror=return-type)
     if(CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
         if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 14)
             message(FATAL_ERROR "Apple Clang 14+ required")
@@ -51,7 +63,7 @@ elseif(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR CMAKE_CXX_COMPILER_ID STREQUAL 
         endif()
     endif()
 elseif(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
-    add_compile_options(/W4 /permissive-)
+    target_compile_options(confy_warnings INTERFACE /W4 /permissive-)
     if(MSVC_VERSION LESS 1930)
         message(FATAL_ERROR "MSVC 2022 (v17.0+) required")
     endif()
@@ -89,11 +101,19 @@ if(NOT tomlplusplus_FOUND)
         GIT_SHALLOW    TRUE
     )
     FetchContent_MakeAvailable(tomlplusplus)
+    # Header-only: fix a known defect in the fetched sources before anything compiles.
+    execute_process(COMMAND ${CMAKE_COMMAND} -DSOURCE_DIR=${tomlplusplus_SOURCE_DIR}
+                            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/patch_tomlplusplus.cmake)
 else()
     message(STATUS "Found tomlplusplus: ${tomlplusplus_VERSION}")
+    if(tomlplusplus_VERSION VERSION_LESS_EQUAL 3.4.0)
+        message(WARNING "toml++ ${tomlplusplus_VERSION} has undefined behaviour on some non-ASCII input "
+                        "(see cmake/patch_tomlplusplus.cmake); use the fetched copy or a fixed release")
+    endif()
 endif()
 
-# cxxopts - CLI parsing (Phase 4)
+# cxxopts - CLI parsing (Phase 4), only when the command-line tool is built
+if(CONFY_BUILD_CLI)
 find_package(cxxopts 3.0 QUIET)
 if(NOT cxxopts_FOUND)
     message(STATUS "cxxopts not found, fetching from source...")
@@ -106,6 +126,7 @@ if(NOT cxxopts_FOUND)
     FetchContent_MakeAvailable(cxxopts)
 else()
     message(STATUS "Found cxxopts: ${cxxopts_VERSION}")
+endif()
 endif()
 
 # ============================================================================
@@ -132,37 +153,46 @@ target_include_directories(confy PUBLIC
     $<INSTALL_INTERFACE:include>
 )
 
-target_link_libraries(confy PUBLIC
-    nlohmann_json::nlohmann_json
-    tomlplusplus::tomlplusplus
+# toml++ is used only by the sources, never by public headers (C-09).
+target_link_libraries(confy
+    PUBLIC nlohmann_json::nlohmann_json
+    PRIVATE tomlplusplus::tomlplusplus $<BUILD_INTERFACE:confy_warnings>
 )
+add_library(confy::confy ALIAS confy)
 
 # Enable detailed error messages
 target_compile_definitions(confy PUBLIC
     CONFY_DETAILED_ERRORS=1
 )
 
+# Position-independent so the static library can be linked into shared
+# libraries (for example a C interface built on top of an application layer).
+set_target_properties(confy PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
 # ============================================================================
 # CLI: confy-cpp executable (Phase 4)
 # ============================================================================
 
+if(CONFY_BUILD_CLI)
 add_executable(confy-cpp src/cli_main.cpp)
 
 target_link_libraries(confy-cpp PRIVATE
     confy
     cxxopts
+    confy_warnings
 )
 
 set_target_properties(confy-cpp PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
 )
+endif()
 
 # ============================================================================
 # Tests: using GoogleTest
 # ============================================================================
 
-include(CTest)
-if(BUILD_TESTING)
+if(CONFY_BUILD_TESTS)
+    enable_testing()
     # Try system GTest first
     find_package(GTest QUIET)
     if(NOT GTest_FOUND)
@@ -195,7 +225,10 @@ if(BUILD_TESTING)
     target_link_libraries(confy_tests PRIVATE
         confy
         GTest::gtest_main
+        confy_warnings
     )
+    # The tests exercise the TOML loader directly.
+    target_link_libraries(confy_tests PRIVATE tomlplusplus::tomlplusplus)
 
     # Suppress warnings for generated code
     target_compile_options(confy_tests PRIVATE
@@ -216,7 +249,7 @@ option(CONFY_INSTALL "Enable installation targets" OFF)
 if(CONFY_INSTALL)
     include(GNUInstallDirs)
 
-    install(TARGETS confy
+    install(TARGETS confy confy_warnings
         EXPORT confy-targets
         LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
         ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
@@ -227,9 +260,11 @@ if(CONFY_INSTALL)
         DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
     )
 
-    install(TARGETS confy-cpp
-        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-    )
+    if(CONFY_BUILD_CLI)
+        install(TARGETS confy-cpp
+            RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+        )
+    endif()
 
     # Package Configuration
     install(EXPORT confy-targets

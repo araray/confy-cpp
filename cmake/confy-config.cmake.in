@@ -4,6 +4,8 @@ include(CMakeFindDependencyMacro)
 
 # Find required dependencies
 find_dependency(nlohmann_json REQUIRED)
+# Linked privately, but a static library still needs it at the consumer's link step.
+find_dependency(tomlplusplus REQUIRED)
 
 include("${CMAKE_CURRENT_LIST_DIR}/confy-targets.cmake")
 

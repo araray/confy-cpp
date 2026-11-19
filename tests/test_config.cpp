@@ -545,3 +545,81 @@ TEST(ConfigLoad, TomlKeyPromotionCanBeDisabled) {
     EXPECT_FALSE(cfg.get<bool>("debug", true));        // the default stays
     EXPECT_TRUE(cfg.get<bool>("section.debug", false)); // read as written
 }
+
+// ============================================================================
+// C-01, C-02, C-11, C-12 (Sigilo phase 4)
+// ============================================================================
+
+TEST(ConfigLoad, SeveralFilesMergeInOrder) {
+    TempFile sys("confy_c01_sys.json", R"({"db": {"host": "sys", "port": 1}, "a": 1})");
+    TempFile user("confy_c01_user.toml", "[db]\nport = 2\n");
+    TempFile expl("confy_c01_explicit.json", R"({"db": {"host": "explicit"}})");
+    LoadOptions opts;
+    opts.file_path = sys.path();
+    opts.file_paths = {user.path(), expl.path()};
+    opts.prefix = std::nullopt;
+    opts.load_dotenv_file = false;
+    Config cfg = Config::load(opts);
+    EXPECT_EQ(cfg.get<std::string>("db.host", ""), "explicit");
+    EXPECT_EQ(cfg.get<int>("db.port", 0), 2);
+    EXPECT_EQ(cfg.get<int>("a", 0), 1);
+    opts.file_paths.push_back((fs::temp_directory_path() / "confy_c01_missing.json").string());
+    EXPECT_THROW(Config::load(opts), FileNotFoundError);
+}
+
+TEST(ConfigLoad, DotenvOverlayLeavesTheEnvironmentAlone) {
+    TempFile env("confy_c02.env", "C02APP_DB_HOST=from-dotenv\nC02APP_DB_PORT=7000\nC02APP_ONLY_DOTENV=yes\n");
+    ::unsetenv("C02APP_ONLY_DOTENV");
+    EnvGuard g("C02APP_DB_PORT", "8000");  // the environment wins over .env (RULE P4)
+    LoadOptions opts;
+    opts.prefix = "C02APP";
+    opts.load_dotenv_file = true;
+    opts.dotenv_path = env.path();
+    opts.dotenv_mode = LoadOptions::DotenvMode::overlay;
+    opts.defaults = {{"db", {{"host", "default"}, {"port", 1}}}, {"only", {{"dotenv", "no"}}}};
+    Config cfg = Config::load(opts);
+    EXPECT_EQ(cfg.get<std::string>("db.host", ""), "from-dotenv");
+    EXPECT_EQ(cfg.get<int>("db.port", 0), 8000);
+    EXPECT_EQ(std::getenv("C02APP_ONLY_DOTENV"), nullptr);  // no setenv
+    EXPECT_EQ(std::getenv("C02APP_DB_HOST"), nullptr);
+}
+
+TEST(ConfigLoad, DefaultDotenvIsSearchedInParentDirectories) {
+    fs::path root = fs::temp_directory_path() / "confy_c02_tree";
+    fs::create_directories(root / "a" / "b");
+    { std::ofstream(root / ".env") << "C02P_NAME=parent\n"; }
+    auto cwd = fs::current_path();
+    fs::current_path(root / "a" / "b");
+    LoadOptions opts;
+    opts.prefix = "C02P";
+    opts.load_dotenv_file = true;
+    opts.dotenv_mode = LoadOptions::DotenvMode::overlay;
+    opts.defaults = {{"name", "none"}};
+    Config cfg = Config::load(opts);
+    fs::current_path(cwd);
+    fs::remove_all(root);
+    EXPECT_EQ(cfg.get<std::string>("name", ""), "parent");
+}
+
+TEST(ConfigLoad, EmptyPrefixCanBeRejected) {
+    LoadOptions opts;
+    opts.prefix = "";
+    opts.load_dotenv_file = false;
+    opts.reject_empty_prefix = true;
+    EXPECT_THROW(Config::load(opts), ConfigError);
+    opts.prefix = "SOMEAPP";
+    EXPECT_NO_THROW(Config::load(opts));
+}
+
+TEST(ConfigSerialization, RedactedOutput) {
+    Config cfg(Value{{"db", {{"host", "h"}, {"password", "s3cret"}}}, {"token", "abc"}});
+    std::string j = cfg.to_json_redacted({"db.password", "token", "no.such"});
+    EXPECT_EQ(j.find("s3cret"), std::string::npos);
+    EXPECT_EQ(j.find("abc"), std::string::npos);
+    EXPECT_NE(j.find("\"h\""), std::string::npos);
+    EXPECT_NE(j.find("***"), std::string::npos);
+    std::string t = cfg.to_toml_redacted({"db.password"}, "<hidden>");
+    EXPECT_EQ(t.find("s3cret"), std::string::npos);
+    EXPECT_NE(t.find("<hidden>"), std::string::npos);
+    EXPECT_NE(cfg.to_json().find("s3cret"), std::string::npos);  // the config itself is unchanged
+}

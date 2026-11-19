@@ -778,9 +778,14 @@ namespace confy {
 ```cpp
 struct LoadOptions {
     std::string file_path;
+    std::vector<std::string> file_paths;               // C-01
+    bool toml_key_promotion = true;
     std::optional<std::string> prefix = std::nullopt;
+    bool reject_empty_prefix = false;                  // C-12
     bool load_dotenv_file = true;
     std::string dotenv_path;
+    enum class DotenvMode { environment, overlay };
+    DotenvMode dotenv_mode = DotenvMode::environment;  // C-02
     Value defaults = Value::object();
     std::unordered_map<std::string, Value> overrides;
     std::vector<std::string> mandatory;
@@ -811,6 +816,21 @@ Path to the configuration file (JSON or TOML). Format is auto-detected by extens
 opts.file_path = "config.toml";
 opts.file_path = "/etc/myapp/config.json";
 opts.file_path = "";  // No file
+```
+
+---
+
+#### file_paths
+
+```cpp
+std::vector<std::string> file_paths;
+```
+
+More configuration files, merged in order after `file_path`; each has its own format detection, a later file overrides an earlier one, and a missing file throws `FileNotFoundError`. For layered system, user and explicit files:
+
+```cpp
+opts.file_path  = "/etc/myapp/config.toml";
+opts.file_paths = {home + "/.config/myapp/config.toml", "./myapp.json"};
 ```
 
 ---
@@ -2239,3 +2259,12 @@ std::shared_mutex cfg_mutex;
 
 *API Reference for confy-cpp v1.0.0*  
 *Generated from source code and design specification.*
+
+## Additions for Sigilo phase 4
+
+| Option or method | Meaning |
+|---|---|
+| `LoadOptions::file_paths` (C-01) | Several files per load, merged in order after `file_path` |
+| `LoadOptions::dotenv_mode = DotenvMode::overlay` (C-02) | `.env` entries feed the environment mapping without `setenv`; existing variables still win. Without `dotenv_path`, the working directory and its parents are searched (`find_dotenv`), in both modes |
+| `LoadOptions::reject_empty_prefix` (C-12) | `prefix = ""` throws `ConfigError` instead of loading most of the environment |
+| `Config::to_json_redacted(paths, indent, mask)`, `Config::to_toml_redacted(paths, mask)` (C-11) | Serialisation with the listed dot-paths replaced by `mask` (default `***`); missing paths are ignored |

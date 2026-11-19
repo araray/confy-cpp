@@ -95,6 +95,16 @@ std::vector<std::pair<std::string, std::string>>
 collect_env_vars(const std::optional<std::string>& prefix);
 
 /**
+ * @brief As above, plus .env entries that are not set in the environment (C-02).
+ *
+ * `overlay` entries take the place of setenv: a name already present in the
+ * process environment keeps its value (RULE P4).
+ */
+std::vector<std::pair<std::string, std::string>>
+collect_env_vars(const std::optional<std::string>& prefix,
+                 const std::vector<std::pair<std::string, std::string>>& overlay);
+
+/**
  * @brief Flatten a nested Value object into dot-path keys.
  *
  * Implements RULE E5: Extracts all paths from a nested structure.
@@ -198,7 +208,8 @@ Value load_env_vars(
     const Value& base_structure,
     const Value& defaults_data,
     const Value& file_data,
-    bool load_dotenv
+    bool load_dotenv,
+    const std::vector<std::pair<std::string, std::string>>& dotenv_overlay = {}
 );
 
 } // namespace confy

@@ -59,28 +59,43 @@ Config Config::load(const LoadOptions& opts) {
     // Step 2: Load and merge config file
     // -------------------------------------------------------------------------
     Value file_data = Value::object();
-    if (!opts.file_path.empty()) {
+    // file_path first, then file_paths in order (C-01); each file's TOML key
+    // promotion is guided by everything merged before it.
+    std::vector<std::string> files;
+    if (!opts.file_path.empty()) files.push_back(opts.file_path);
+    for (const auto& f : opts.file_paths)
+        if (!f.empty()) files.push_back(f);
+    for (const auto& f : files) {
         // load_config_file handles RULE F6-F8:
-        // - Empty path returns empty object
         // - Missing file throws FileNotFoundError
         // - Auto-detects JSON/TOML by extension
         // - TOML key promotion based on defaults
-        file_data = load_config_file(opts.file_path, opts.toml_key_promotion ? merged : Value::object());
-        merged = deep_merge(merged, file_data);
+        Value one = load_config_file(f, opts.toml_key_promotion ? merged : Value::object());
+        file_data = deep_merge(file_data, one);
+        merged = deep_merge(merged, one);
+    }
+
+    if (opts.reject_empty_prefix && opts.prefix.has_value() && opts.prefix->empty()) {
+        throw ConfigError("an empty environment prefix would load most of the environment (reject_empty_prefix is set)");
     }
 
     // -------------------------------------------------------------------------
     // Step 3: Load .env file (populates environment, does NOT override existing)
     // -------------------------------------------------------------------------
+    std::vector<std::pair<std::string, std::string>> dotenv_overlay;
     if (opts.load_dotenv_file) {
-        // RULE P4: .env does not override existing environment variables
-        std::string env_path = opts.dotenv_path;
-        if (env_path.empty()) {
-            // Search for .env in current directory
-            env_path = ".env";
+        // RULE P4: .env does not override existing environment variables.
+        // Without an explicit path, the working directory and its parents are
+        // searched, as find_dotenv documents (C-02).
+        std::string env_path = opts.dotenv_path.empty() ? find_dotenv() : opts.dotenv_path;
+        if (!env_path.empty()) {
+            if (opts.dotenv_mode == LoadOptions::DotenvMode::overlay) {
+                dotenv_overlay = parse_dotenv_file(env_path).entries;
+            } else {
+                // load_dotenv_file handles the "don't override" semantics
+                load_dotenv_file(env_path, false /* override_existing */);
+            }
         }
-        // load_dotenv_file handles the "don't override" semantics
-        load_dotenv_file(env_path, false /* override_existing */);
     }
 
     // -------------------------------------------------------------------------
@@ -99,7 +114,8 @@ Config Config::load(const LoadOptions& opts) {
             merged,                  // Base structure for remapping
             merged,                  // Defaults (for key lookup)
             file_data,               // File data (for key lookup)
-            false                    // Not from dotenv (conservative mode)
+            false,                   // Not from dotenv (conservative mode)
+            dotenv_overlay           // C-02 overlay entries (empty unless overlay mode)
         );
         merged = deep_merge(merged, env_data);
     }
@@ -238,6 +254,27 @@ toml::table json_to_toml(const Value& json) {
 
 std::string Config::to_toml() const {
     toml::table tbl = json_to_toml(data_);
+    std::ostringstream oss;
+    oss << tbl;
+    return oss.str();
+}
+
+namespace {
+Value redact(const Value& data, const std::vector<std::string>& paths, const std::string& mask) {
+    Value copy = data;
+    for (const auto& p : paths)
+        if (contains_dot(copy, p)) set_by_dot(copy, p, Value(mask), false);
+    return copy;
+}
+}  // namespace
+
+std::string Config::to_json_redacted(const std::vector<std::string>& paths, int indent, const std::string& mask) const {
+    Value r = redact(data_, paths, mask);
+    return indent < 0 ? r.dump() : r.dump(indent);
+}
+
+std::string Config::to_toml_redacted(const std::vector<std::string>& paths, const std::string& mask) const {
+    toml::table tbl = json_to_toml(redact(data_, paths, mask));
     std::ostringstream oss;
     oss << tbl;
     return oss.str();

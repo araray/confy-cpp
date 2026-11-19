@@ -15,6 +15,7 @@
  * @see Python confy/loader.py _collect_env_vars, _remap_and_flatten_env_data
  */
 
+#include <set>
 #include "confy/EnvMapper.hpp"
 #include "confy/Parse.hpp"
 #include "confy/DotPath.hpp"
@@ -359,6 +360,32 @@ collect_env_vars(const std::optional<std::string>& prefix) {
     return result;
 }
 
+std::vector<std::pair<std::string, std::string>>
+collect_env_vars(const std::optional<std::string>& prefix,
+                 const std::vector<std::pair<std::string, std::string>>& overlay) {
+    auto result = collect_env_vars(prefix);
+    if (!prefix.has_value() || overlay.empty()) return result;
+    // Names present in the process environment win (RULE P4), whether or not
+    // they pass the prefix filter.
+    std::set<std::string> present;
+    for (const auto& [name, value] : get_all_env_vars()) present.insert(name);
+    std::string prefix_match;
+    if (!prefix->empty()) {
+        std::string normalized = *prefix;
+        while (!normalized.empty() && normalized.back() == '_') normalized.pop_back();
+        prefix_match = normalized + "_";
+    }
+    std::set<std::string> seen;
+    for (const auto& [name, value] : overlay) {
+        if (present.count(name) || seen.count(name)) continue;
+        bool include = prefix_match.empty() ? !is_system_variable(name) : starts_with_icase(name, prefix_match);
+        if (!include) continue;
+        seen.insert(name);
+        result.emplace_back(name, value);
+    }
+    return result;
+}
+
 std::set<std::string> flatten_keys(const Value& data, const std::string& prefix) {
     std::set<std::string> keys;
 
@@ -595,14 +622,15 @@ Value load_env_vars(
     const Value& base_structure,
     const Value& defaults_data,
     const Value& file_data,
-    bool load_dotenv
+    bool load_dotenv,
+    const std::vector<std::pair<std::string, std::string>>& dotenv_overlay
 ) {
     // Suppress unused parameter warning - base_structure could be used for optimization
     // but we delegate to remap_and_flatten_env_data which recomputes the merge
     (void)base_structure;
 
     // Step 1: Collect environment variables
-    auto env_vars = collect_env_vars(prefix);
+    auto env_vars = dotenv_overlay.empty() ? collect_env_vars(prefix) : collect_env_vars(prefix, dotenv_overlay);
 
     if (env_vars.empty()) {
         return Value::object();

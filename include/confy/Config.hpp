@@ -55,6 +55,16 @@ struct LoadOptions {
     std::string file_path;
 
     /**
+     * @brief Further config files, merged in order after `file_path` (C-01)
+     *
+     * Each file gets its own format detection by extension; a later file
+     * overrides an earlier one. Missing files throw FileNotFoundError, as for
+     * `file_path`. Lets a caller layer system, user and explicit files
+     * without merging by hand.
+     */
+    std::vector<std::string> file_paths;
+
+    /**
      * @brief Whether TOML key promotion applies to the file (C-06)
      *
      * When true (the default, for parity with the Python library), dotted
@@ -76,6 +86,15 @@ struct LoadOptions {
     std::optional<std::string> prefix = std::nullopt;
 
     /**
+     * @brief Treat `prefix = ""` as an error (C-12)
+     *
+     * An empty prefix loads most of the process environment. When this is
+     * true, Config::load throws ConfigError instead, as a defence against
+     * loading the whole environment by accident.
+     */
+    bool reject_empty_prefix = false;
+
+    /**
      * @brief Whether to load .env file
      *
      * If true, searches for and loads a .env file before processing
@@ -92,6 +111,18 @@ struct LoadOptions {
      * and parent directories for ".env".
      */
     std::string dotenv_path;
+
+    /**
+     * @brief How .env entries reach the environment mapping (C-02)
+     *
+     * - `environment` (default, parity with the Python library): entries are
+     *   set in the process environment with setenv (existing variables win).
+     * - `overlay`: entries are parsed and fed to the environment-mapping step
+     *   directly; the process environment is not touched. Existing variables
+     *   still win. Thread-safe and free of process-wide side effects.
+     */
+    enum class DotenvMode { environment, overlay };
+    DotenvMode dotenv_mode = DotenvMode::environment;
 
     /**
      * @brief Default values (lowest precedence)
@@ -365,6 +396,15 @@ public:
      * @return TOML string representation
      */
     std::string to_toml() const;
+
+    /**
+     * @brief to_json / to_toml with the values at `paths` replaced by `mask` (C-11)
+     *
+     * Paths that do not exist are ignored. For keys that hold secrets.
+     */
+    std::string to_json_redacted(const std::vector<std::string>& paths, int indent = 2,
+                                 const std::string& mask = "***") const;
+    std::string to_toml_redacted(const std::vector<std::string>& paths, const std::string& mask = "***") const;
 
     /**
      * @brief Convert to plain dictionary (recursively)

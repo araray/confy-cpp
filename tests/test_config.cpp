@@ -669,3 +669,34 @@ TEST(ConfigTryLoad, ReportsEachKindOfFailure) {
     EXPECT_EQ(r4.config->get<std::string>("db.host", std::string()), "localhost");
     fs::remove_all(dir);
 }
+
+// C-05: values of string keys are not parsed (the "007" problem).
+TEST(ConfigStringKeys, EnvironmentAndOverridesKeepStrings) {
+    ::setenv("CFYT_REDACT_MASK__CHAR", "007", 1);
+    ::setenv("CFYT_LIMITS_DEPTH", "007", 1);
+    confy::LoadOptions o;
+    o.load_dotenv_file = false;
+    o.prefix = std::string("CFYT");
+    o.defaults = confy::Value::object();
+    o.defaults["redact"] = confy::Value::object();
+    o.defaults["redact"]["mask_char"] = "*";
+    o.defaults["limits"] = confy::Value::object();
+    o.defaults["limits"]["depth"] = 4;
+    o.defaults["name"] = "x";
+    o.string_keys = {"redact.mask_char", "name"};
+    o.overrides["name"] = confy::Value("0012");
+    auto c = confy::Config::load(o);
+    ::unsetenv("CFYT_REDACT_MASK__CHAR");
+    ::unsetenv("CFYT_LIMITS_DEPTH");
+    EXPECT_EQ(c.data()["redact"]["mask_char"].get<std::string>(), "007");  // kept
+    EXPECT_EQ(c.data()["name"].get<std::string>(), "0012");                // kept
+    EXPECT_EQ(c.data()["limits"]["depth"].get<long long>(), 7);           // other keys parse as before
+    // Without string keys the old behaviour stays.
+    ::setenv("CFYT_REDACT_MASK__CHAR", "007", 1);
+    confy::LoadOptions p = o;
+    p.string_keys.clear();
+    p.overrides.clear();
+    auto d = confy::Config::load(p);
+    ::unsetenv("CFYT_REDACT_MASK__CHAR");
+    EXPECT_TRUE(d.data()["redact"]["mask_char"].is_number());
+}

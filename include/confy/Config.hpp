@@ -27,6 +27,7 @@
 #include "confy/Value.hpp"
 #include "confy/Errors.hpp"
 
+#include <set>
 #include <string>
 #include <vector>
 #include <unordered_map>
@@ -162,6 +163,14 @@ struct LoadOptions {
      * @endcode
      */
     std::vector<std::string> mandatory;
+
+    /**
+     * @brief Dot-paths whose environment and override values stay strings (C-05)
+     *
+     * Values for these keys are not parsed into numbers, booleans or null:
+     * "007" stays "007". Empty: every value is parsed (the default behaviour).
+     */
+    std::set<std::string> string_keys;
 };
 
 /**

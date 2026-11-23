@@ -160,7 +160,8 @@ std::string remap_env_key(
  */
 Value env_vars_to_nested(
     const std::vector<std::pair<std::string, std::string>>& env_vars,
-    const std::optional<std::string>& prefix
+    const std::optional<std::string>& prefix,
+    bool parse = true   ///< false: keep every value as its raw string (C-05)
 );
 
 /**
@@ -209,7 +210,8 @@ Value load_env_vars(
     const Value& defaults_data,
     const Value& file_data,
     bool load_dotenv,
-    const std::vector<std::pair<std::string, std::string>>& dotenv_overlay = {}
+    const std::vector<std::pair<std::string, std::string>>& dotenv_overlay = {},
+    const std::set<std::string>* string_keys = nullptr   ///< C-05: dot-paths whose values stay strings
 );
 
 } // namespace confy

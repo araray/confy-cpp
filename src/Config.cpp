@@ -115,7 +115,8 @@ Config Config::load(const LoadOptions& opts) {
             merged,                  // Defaults (for key lookup)
             file_data,               // File data (for key lookup)
             false,                   // Not from dotenv (conservative mode)
-            dotenv_overlay           // C-02 overlay entries (empty unless overlay mode)
+            dotenv_overlay,          // C-02 overlay entries (empty unless overlay mode)
+            opts.string_keys.empty() ? nullptr : &opts.string_keys  // C-05
         );
         merged = deep_merge(merged, env_data);
     }
@@ -124,7 +125,12 @@ Config Config::load(const LoadOptions& opts) {
     // Step 5: Apply overrides (highest precedence)
     // -------------------------------------------------------------------------
     if (!opts.overrides.empty()) {
-        Value overrides_obj = overrides_to_value(opts.overrides);
+        Value overrides_obj = Value::object();
+        for (const auto& [path, value] : opts.overrides) {
+            // C-05: a string key keeps its string; other strings are parsed as before
+            const bool keep = value.is_string() && opts.string_keys.count(path);
+            set_by_dot(overrides_obj, path, keep ? value : (value.is_string() ? parse_value(value.get<std::string>()) : value), true);
+        }
         merged = deep_merge(merged, overrides_obj);
     }
 

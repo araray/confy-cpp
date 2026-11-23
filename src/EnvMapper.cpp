@@ -523,7 +523,8 @@ std::string remap_env_key(
 
 Value env_vars_to_nested(
     const std::vector<std::pair<std::string, std::string>>& env_vars,
-    const std::optional<std::string>& prefix
+    const std::optional<std::string>& prefix,
+    bool parse
 ) {
     Value result = Value::object();
 
@@ -542,8 +543,8 @@ Value env_vars_to_nested(
         // Transform using underscore rules
         std::string dot_key = transform_env_name(key_part);
 
-        // Parse value
-        Value parsed_value = parse_value(raw_value);
+        // Parse value (or keep the raw string, C-05)
+        Value parsed_value = parse ? parse_value(raw_value) : Value(raw_value);
 
         // Set in result structure
         try {
@@ -623,7 +624,8 @@ Value load_env_vars(
     const Value& defaults_data,
     const Value& file_data,
     bool load_dotenv,
-    const std::vector<std::pair<std::string, std::string>>& dotenv_overlay
+    const std::vector<std::pair<std::string, std::string>>& dotenv_overlay,
+    const std::set<std::string>* string_keys
 ) {
     // Suppress unused parameter warning - base_structure could be used for optimization
     // but we delegate to remap_and_flatten_env_data which recomputes the merge
@@ -637,7 +639,9 @@ Value load_env_vars(
     }
 
     // Step 2: Convert to nested structure
-    Value nested_env = env_vars_to_nested(env_vars, prefix);
+    // With string keys, values are parsed only after remapping, when each one's final
+    // dot-path is known (C-05: "007" under a string key stays "007").
+    Value nested_env = env_vars_to_nested(env_vars, prefix, string_keys == nullptr);
 
     // Step 3: Remap and flatten
     auto remapped = remap_and_flatten_env_data(
@@ -649,7 +653,10 @@ Value load_env_vars(
 
     for (const auto& [key, value] : remapped) {
         try {
-            set_by_dot(result, key, value, true);
+            if (string_keys && value.is_string() && !string_keys->count(key))
+                set_by_dot(result, key, parse_value(value.get<std::string>()), true);
+            else
+                set_by_dot(result, key, value, true);
         } catch (const std::exception& e) {
             // Skip problematic keys
             continue;

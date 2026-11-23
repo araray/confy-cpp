@@ -257,6 +257,14 @@ public:
      */
     static Config load(const LoadOptions& opts);
 
+    /**
+     * @brief Non-throwing load (C-07)
+     *
+     * The same as load(), with every failure returned as a LoadError instead of
+     * thrown. Never throws.
+     */
+    static struct LoadResult try_load(const LoadOptions& opts) noexcept;
+
     // =========================================================================
     // Value Access (Dot-Path)
     // =========================================================================
@@ -490,6 +498,26 @@ T Config::get(const std::string& path, const T& default_val) const {
         throw TypeError(path, "compatible type", e.what());
     }
 }
+
+/**
+ * @brief Structured error of Config::try_load (C-07)
+ */
+struct LoadError {
+    enum class Kind { file_not_found, parse, missing_mandatory, key, type, other };
+    Kind kind = Kind::other;
+    std::string file;       ///< the file involved, if any
+    std::string key;        ///< the dot-path involved, if any (first missing key for missing_mandatory)
+    std::string message;    ///< human-readable description (the exception's what())
+};
+
+/**
+ * @brief Result of Config::try_load: a configuration or an error
+ */
+struct LoadResult {
+    std::optional<Config> config;
+    std::optional<LoadError> error;
+    bool ok() const noexcept { return config.has_value(); }
+};
 
 } // namespace confy
 

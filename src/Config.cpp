@@ -343,3 +343,40 @@ Value Config::overrides_to_value(
 }
 
 } // namespace confy
+
+namespace confy {
+
+LoadResult Config::try_load(const LoadOptions& opts) noexcept {
+    LoadResult r;
+    auto fail = [&](LoadError::Kind k, std::string file, std::string key, const char* what) {
+        LoadError e;
+        e.kind = k;
+        e.file = std::move(file);
+        e.key = std::move(key);
+        e.message = what ? what : "";
+        r.error = std::move(e);
+    };
+    try {
+        try {
+            r.config.emplace(load(opts));
+        } catch (const FileNotFoundError& e) {
+            fail(LoadError::Kind::file_not_found, e.path(), "", e.what());
+        } catch (const ConfigParseError& e) {
+            fail(LoadError::Kind::parse, e.file(), "", e.what());
+        } catch (const MissingMandatoryConfig& e) {
+            fail(LoadError::Kind::missing_mandatory, "", e.missing_keys().empty() ? "" : e.missing_keys().front(), e.what());
+        } catch (const KeyError& e) {
+            fail(LoadError::Kind::key, "", e.path(), e.what());
+        } catch (const TypeError& e) {
+            fail(LoadError::Kind::type, "", e.path(), e.what());
+        } catch (const std::exception& e) {
+            fail(LoadError::Kind::other, "", "", e.what());
+        }
+    } catch (...) {
+        r.config.reset();
+        r.error = LoadError{LoadError::Kind::other, "", "", "unknown error"};
+    }
+    return r;
+}
+
+} // namespace confy

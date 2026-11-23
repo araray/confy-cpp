@@ -623,3 +623,49 @@ TEST(ConfigSerialization, RedactedOutput) {
     EXPECT_NE(t.find("<hidden>"), std::string::npos);
     EXPECT_NE(cfg.to_json().find("s3cret"), std::string::npos);  // the config itself is unchanged
 }
+
+// C-07: try_load returns structured errors instead of throwing.
+TEST(ConfigTryLoad, ReportsEachKindOfFailure) {
+    namespace fs = std::filesystem;
+    const fs::path dir = fs::temp_directory_path() / "confy_try_load";
+    fs::create_directories(dir);
+
+    confy::LoadOptions missing;
+    missing.file_path = (dir / "does_not_exist.toml").string();
+    missing.load_dotenv_file = false;
+    auto r1 = confy::Config::try_load(missing);
+    EXPECT_FALSE(r1.ok());
+    ASSERT_TRUE(r1.error.has_value());
+    EXPECT_EQ(r1.error->kind, confy::LoadError::Kind::file_not_found);
+    EXPECT_NE(r1.error->file.find("does_not_exist.toml"), std::string::npos);
+
+    const fs::path bad = dir / "bad.toml";
+    { std::ofstream(bad) << "[section\nkey = = 1\n"; }
+    confy::LoadOptions parse;
+    parse.file_path = bad.string();
+    parse.load_dotenv_file = false;
+    auto r2 = confy::Config::try_load(parse);
+    ASSERT_TRUE(r2.error.has_value());
+    EXPECT_EQ(r2.error->kind, confy::LoadError::Kind::parse);
+    EXPECT_FALSE(r2.error->message.empty());
+
+    confy::LoadOptions mand;
+    mand.load_dotenv_file = false;
+    mand.mandatory = {"db.host"};
+    auto r3 = confy::Config::try_load(mand);
+    ASSERT_TRUE(r3.error.has_value());
+    EXPECT_EQ(r3.error->kind, confy::LoadError::Kind::missing_mandatory);
+    EXPECT_EQ(r3.error->key, "db.host");
+
+    const fs::path good = dir / "good.toml";
+    { std::ofstream(good) << "[db]\nhost = \"localhost\"\n"; }
+    confy::LoadOptions ok;
+    ok.file_path = good.string();
+    ok.load_dotenv_file = false;
+    ok.mandatory = {"db.host"};
+    auto r4 = confy::Config::try_load(ok);
+    ASSERT_TRUE(r4.ok());
+    EXPECT_FALSE(r4.error.has_value());
+    EXPECT_EQ(r4.config->get<std::string>("db.host", std::string()), "localhost");
+    fs::remove_all(dir);
+}

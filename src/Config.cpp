@@ -23,6 +23,8 @@
 #include "confy/EnvMapper.hpp"
 #include "confy/Parse.hpp"
 
+#include <cctype>
+#include <cstdlib>
 #include <sstream>
 
 // For TOML serialization
@@ -44,8 +46,36 @@ Config::Config(const Value& data) : data_(data) {
 // Static Factory: load()
 // =============================================================================
 
+namespace {
+// Leaf dot-paths of an object (C-03).
+void leaf_paths(const Value& v, const std::string& prefix, std::vector<std::string>& out) {
+    if (!v.is_object()) {
+        if (!prefix.empty()) out.push_back(prefix);
+        return;
+    }
+    for (auto it = v.begin(); it != v.end(); ++it)
+        leaf_paths(it.value(), prefix.empty() ? it.key() : prefix + "." + it.key(), out);
+}
+// The canonical environment variable of a dot-path: '.' as '_', a literal '_' as '__' (rule E4 inverted).
+std::string env_name_of(const std::string& prefix, const std::string& path) {
+    std::string n = prefix.empty() ? "" : prefix + "_";
+    for (char ch : path) {
+        if (ch == '.') n += '_';
+        else if (ch == '_') n += "__";
+        else n += static_cast<char>(std::toupper(static_cast<unsigned char>(ch)));
+    }
+    return n;
+}
+}  // namespace
+
 Config Config::load(const LoadOptions& opts) {
     Config cfg;
+    auto mark = [&](const Value& layer, const std::string& label) {
+        if (!opts.track_provenance) return;
+        std::vector<std::string> paths;
+        leaf_paths(layer, "", paths);
+        for (auto& p : paths) cfg.provenance_[p] = label;
+    };
 
     // -------------------------------------------------------------------------
     // Step 1: Start with defaults (lowest precedence)
@@ -54,6 +84,7 @@ Config Config::load(const LoadOptions& opts) {
     if (!merged.is_object()) {
         merged = Value::object();
     }
+    mark(merged, "defaults");
 
     // -------------------------------------------------------------------------
     // Step 2: Load and merge config file
@@ -73,6 +104,7 @@ Config Config::load(const LoadOptions& opts) {
         Value one = load_config_file(f, opts.toml_key_promotion ? merged : Value::object());
         file_data = deep_merge(file_data, one);
         merged = deep_merge(merged, one);
+        mark(one, "file:" + f);
     }
 
     if (opts.reject_empty_prefix && opts.prefix.has_value() && opts.prefix->empty()) {
@@ -119,6 +151,17 @@ Config Config::load(const LoadOptions& opts) {
             opts.string_keys.empty() ? nullptr : &opts.string_keys  // C-05
         );
         merged = deep_merge(merged, env_data);
+        if (opts.track_provenance) {
+            std::vector<std::string> paths;
+            leaf_paths(env_data, "", paths);
+            for (auto& p : paths) {
+                const std::string name = env_name_of(opts.prefix.value(), p);
+                bool from_dotenv = false;
+                if (!std::getenv(name.c_str()))
+                    for (auto& [k, v] : dotenv_overlay) from_dotenv |= k == name;
+                cfg.provenance_[p] = from_dotenv ? "dotenv:" + (opts.dotenv_path.empty() ? find_dotenv() : opts.dotenv_path) : "env:" + name;
+            }
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -132,6 +175,7 @@ Config Config::load(const LoadOptions& opts) {
             set_by_dot(overrides_obj, path, keep ? value : (value.is_string() ? parse_value(value.get<std::string>()) : value), true);
         }
         merged = deep_merge(merged, overrides_obj);
+        mark(overrides_obj, "override");
     }
 
     // -------------------------------------------------------------------------

@@ -700,3 +700,27 @@ TEST(ConfigStringKeys, EnvironmentAndOverridesKeepStrings) {
     ::unsetenv("CFYT_REDACT_MASK__CHAR");
     EXPECT_TRUE(d.data()["redact"]["mask_char"].is_number());
 }
+
+// C-03: provenance of each leaf.
+TEST(ConfigProvenance, EachLayerIsRecorded) {
+    ::setenv("CFYP_LIMITS_MAX__DEPTH", "9", 1);
+    confy::LoadOptions o;
+    o.load_dotenv_file = false;
+    o.prefix = std::string("CFYP");
+    o.defaults = confy::Value::object();
+    o.defaults["limits"] = confy::Value::object();
+    o.defaults["limits"]["max_depth"] = 4;
+    o.defaults["limits"]["width"] = 2;
+    o.defaults["name"] = "x";
+    o.defaults["mode"] = "a";
+    o.overrides["mode"] = confy::Value("b");
+    o.track_provenance = true;
+    auto c = confy::Config::load(o);
+    ::unsetenv("CFYP_LIMITS_MAX__DEPTH");
+    EXPECT_EQ(c.source_of("limits.width").value_or(""), "defaults");
+    EXPECT_EQ(c.source_of("limits.max_depth").value_or(""), "env:CFYP_LIMITS_MAX__DEPTH");
+    EXPECT_EQ(c.source_of("mode").value_or(""), "override");
+    EXPECT_FALSE(c.source_of("absent").has_value());
+    o.track_provenance = false;
+    EXPECT_TRUE(confy::Config::load(o).provenance().empty());
+}

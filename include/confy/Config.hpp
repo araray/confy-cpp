@@ -171,6 +171,14 @@ struct LoadOptions {
      * "007" stays "007". Empty: every value is parsed (the default behaviour).
      */
     std::set<std::string> string_keys;
+
+    /**
+     * @brief Record which layer set each leaf (C-03)
+     *
+     * When true, Config::source_of(path) answers "defaults", "file:<path>",
+     * "dotenv:<path>", "env:<NAME>" (the variable's canonical name) or "override".
+     */
+    bool track_provenance = false;
 };
 
 /**
@@ -467,8 +475,22 @@ public:
      */
     void merge(const Value& other);
 
+    /**
+     * @brief The layer that set a leaf (C-03; needs LoadOptions::track_provenance)
+     * @return "defaults", "file:<path>", "dotenv:<path>", "env:<NAME>" or "override"; nullopt if unknown
+     */
+    std::optional<std::string> source_of(const std::string& path) const {
+        auto it = provenance_.find(path);
+        if (it == provenance_.end()) return std::nullopt;
+        return it->second;
+    }
+
+    /// Every recorded leaf and its layer (empty unless track_provenance was set).
+    const std::unordered_map<std::string, std::string>& provenance() const noexcept { return provenance_; }
+
 private:
     Value data_ = Value::object();
+    std::unordered_map<std::string, std::string> provenance_;
 
     /**
      * @brief Validate that all mandatory keys exist

@@ -150,12 +150,25 @@ Config Config::load(const LoadOptions& opts) {
             dotenv_overlay,          // C-02 overlay entries (empty unless overlay mode)
             opts.string_keys.empty() ? nullptr : &opts.string_keys  // C-05
         );
+        const Value before_env = merged;
         merged = deep_merge(merged, env_data);
         if (opts.track_provenance) {
+            // The variable that set each key, as written in the environment: map every
+            // collected name through the same transform and remap as loading did.
+            const std::set<std::string> base_keys = flatten_keys(before_env);
+            std::unordered_map<std::string, std::string> name_of;
+            const auto vars = dotenv_overlay.empty() ? collect_env_vars(opts.prefix) : collect_env_vars(opts.prefix, dotenv_overlay);
+            for (const auto& [name, value] : vars) {
+                const std::string part = opts.prefix->empty() ? name : strip_prefix(name, opts.prefix.value());
+                if (part.empty()) continue;
+                const std::string key = remap_env_key(transform_env_name(part), base_keys, opts.prefix, false);
+                if (!key.empty() && !name_of.count(key)) name_of[key] = name;
+            }
             std::vector<std::string> paths;
             leaf_paths(env_data, "", paths);
             for (auto& p : paths) {
-                const std::string name = env_name_of(opts.prefix.value(), p);
+                auto it = name_of.find(p);
+                const std::string name = it != name_of.end() ? it->second : env_name_of(opts.prefix.value(), p);
                 bool from_dotenv = false;
                 if (!std::getenv(name.c_str()))
                     for (auto& [k, v] : dotenv_overlay) from_dotenv |= k == name;

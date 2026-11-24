@@ -720,6 +720,13 @@ TEST(ConfigProvenance, EachLayerIsRecorded) {
     EXPECT_EQ(c.source_of("limits.width").value_or(""), "defaults");
     EXPECT_EQ(c.source_of("limits.max_depth").value_or(""), "env:CFYP_LIMITS_MAX__DEPTH");
     EXPECT_EQ(c.source_of("mode").value_or(""), "override");
+    // The name as set, not the canonical one: CFYP_LIMITS_MAX_DEPTH (single underscore) remaps to
+    // limits.max_depth, whose canonical name is CFYP_LIMITS_MAX__DEPTH.
+    ::setenv("CFYP_LIMITS_MAX_DEPTH", "3", 1);
+    auto c2 = confy::Config::load(o);
+    ::unsetenv("CFYP_LIMITS_MAX_DEPTH");
+    EXPECT_EQ(c2.data()["limits"]["max_depth"].get<long long>(), 3);
+    EXPECT_EQ(c2.source_of("limits.max_depth").value_or(""), "env:CFYP_LIMITS_MAX_DEPTH");
     EXPECT_FALSE(c.source_of("absent").has_value());
     o.track_provenance = false;
     EXPECT_TRUE(confy::Config::load(o).provenance().empty());

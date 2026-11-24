@@ -53,8 +53,12 @@ TEST(Schema, EveryViolationIsReported) {
     EXPECT_TRUE(has(vs, Violation::Kind::deprecated, "legacy"));
     EXPECT_TRUE(has(vs, Violation::Kind::pattern_mismatch, "name"));
     for (auto& v : vs) {
-        if (v.kind == Violation::Kind::unknown_key) EXPECT_EQ(v.suggestion, "detect.min_grade");
-        if (v.kind == Violation::Kind::deprecated || v.kind == Violation::Kind::renamed) EXPECT_FALSE(v.error);
+        if (v.kind == Violation::Kind::unknown_key) {
+            EXPECT_EQ(v.suggestion, "detect.min_grade");
+        }
+        if (v.kind == Violation::Kind::deprecated || v.kind == Violation::Kind::renamed) {
+            EXPECT_FALSE(v.error);
+        }
     }
 }
 

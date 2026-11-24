@@ -146,6 +146,7 @@ add_library(confy STATIC
 
     # Phase 3: Config Class
     src/Config.cpp
+    src/Schema.cpp
 )
 
 target_include_directories(confy PUBLIC
@@ -219,6 +220,7 @@ if(CONFY_BUILD_TESTS)
         tests/test_env_mapper.cpp
         tests/test_loader.cpp
         tests/test_config.cpp
+        tests/test_schema.cpp
         tests/test_cli.cpp
     )
 
